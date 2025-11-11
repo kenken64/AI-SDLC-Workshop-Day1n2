@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
-import type { RegistrationResponseJSON } from '@simplewebauthn/types';
+import type { RegistrationResponseJSON } from '@simplewebauthn/server';
 import { userDB, authenticatorDB } from '@/lib/db';
 import { createSession } from '@/lib/auth';
 
@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
 
     const registrationInfo = verification.registrationInfo;
 
-    // Handle both old and new API formats
-    const finalCredentialID = registrationInfo.credentialID || registrationInfo.credential?.id;
-    const finalCredentialPublicKey = registrationInfo.credentialPublicKey || registrationInfo.credential?.publicKey;
-    const counter = registrationInfo.counter ?? 0;
+    // Extract credential information from the new API structure
+    const finalCredentialID = registrationInfo.credential?.id;
+    const finalCredentialPublicKey = registrationInfo.credential?.publicKey;
+    const counter = registrationInfo.credential?.counter ?? 0;
     const credentialDeviceType = registrationInfo.credentialDeviceType;
     const credentialBackedUp = registrationInfo.credentialBackedUp ?? false;
 
