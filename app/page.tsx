@@ -107,6 +107,8 @@ export default function Home() {
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [editTagName, setEditTagName] = useState('');
   const [editTagColor, setEditTagColor] = useState('');
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [dateRangeStart, setDateRangeStart] = useState('');
@@ -904,12 +906,12 @@ export default function Home() {
   const completedTodos = filteredTodos.filter(t => t.completed);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 py-4 sm:py-8 px-2 sm:px-4">
       <main className="max-w-3xl mx-auto">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 sm:p-6">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white">
                 Todo App
               </h1>
               {username && (
@@ -918,7 +920,20 @@ export default function Home() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2 flex-wrap items-center">
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="sm:hidden px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              aria-label="Menu"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
+            {/* Desktop Menu */}
+            <div className="hidden sm:flex gap-2 flex-wrap items-center">
               {/* Export/Import Dropdown Menu */}
               <div className="relative">
                 <button
@@ -1023,6 +1038,80 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Mobile Menu Dropdown */}
+          {showMobileMenu && (
+            <div className="sm:hidden mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col gap-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="w-full px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <span>⋮</span> Data
+                  </button>
+                </div>
+                <Link
+                  href="/calendar"
+                  className="w-full px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors text-center"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  Calendar
+                </Link>
+                <button
+                  onClick={() => {
+                    setShowTemplateModal(true);
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+                >
+                  📋 Templates
+                </button>
+                {permission !== 'granted' && (
+                  <button
+                    onClick={() => {
+                      requestPermission();
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm"
+                  >
+                    🔔 Enable Notifications
+                  </button>
+                )}
+                {permission === 'granted' && !isMuted && (
+                  <button
+                    onClick={() => {
+                      toggleMute();
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full px-3 py-2 bg-green-50 dark:bg-green-900 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-800 transition-colors text-sm"
+                  >
+                    🔔 Notifications Enabled (Click to Mute)
+                  </button>
+                )}
+                {permission === 'granted' && isMuted && (
+                  <button
+                    onClick={() => {
+                      toggleMute();
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+                  >
+                    🔕 Notifications Muted (Click to Unmute)
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={addTodo} className="mb-6">
             <div className="flex gap-2 flex-col">
               <div className="flex gap-2 flex-col sm:flex-row">
@@ -1060,17 +1149,32 @@ export default function Home() {
                   Add
                 </button>
               </div>
-              <div className="flex gap-3 items-center flex-wrap">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newIsRecurring}
-                    onChange={(e) => setNewIsRecurring(e.target.checked)}
-                    disabled={loading}
-                    className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Repeat</span>
-                </label>
+
+              {/* Advanced Options Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+              >
+                <svg className={`w-4 h-4 transform transition-transform ${showAdvancedOptions ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                {showAdvancedOptions ? 'Hide' : 'Show'} Advanced Options
+              </button>
+
+              {showAdvancedOptions && (
+                <>
+                  <div className="flex gap-3 items-center flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIsRecurring}
+                        onChange={(e) => setNewIsRecurring(e.target.checked)}
+                        disabled={loading}
+                        className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Repeat</span>
+                    </label>
                 {newIsRecurring && (
                   <select
                     value={newRecurrencePattern}
@@ -1165,6 +1269,8 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
+              )}
+                </>
               )}
             </div>
           </form>
