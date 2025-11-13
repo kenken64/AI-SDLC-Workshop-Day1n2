@@ -34,7 +34,7 @@ export default function LoginPage() {
       const options = await optionsRes.json();
 
       // Start passkey registration
-      const registrationResponse = await startRegistration(options);
+      const registrationResponse = await startRegistration({ optionsJSON: options });
 
       // Verify registration
       const verifyRes = await fetch('/api/auth/register-verify', {
@@ -81,7 +81,7 @@ export default function LoginPage() {
       const options = await optionsRes.json();
 
       // Start passkey authentication
-      const authResponse = await startAuthentication(options);
+      const authResponse = await startAuthentication({ optionsJSON: options });
 
       // Verify authentication
       const verifyRes = await fetch('/api/auth/login-verify', {
