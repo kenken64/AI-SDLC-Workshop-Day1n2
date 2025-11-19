@@ -4,6 +4,59 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 
+// Convert WebAuthn errors to user-friendly messages
+function getUserFriendlyError(error: any): string {
+  const errorMessage = error?.message || error?.toString() || '';
+
+  // User cancelled the operation
+  if (errorMessage.includes('abort') || errorMessage.includes('cancel')) {
+    return 'Passkey authentication was cancelled. Please try again.';
+  }
+
+  // Timeout
+  if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+    return 'The passkey request timed out. Please try again.';
+  }
+
+  // Not allowed / privacy error
+  if (errorMessage.includes('not allowed') || errorMessage.includes('NotAllowedError')) {
+    return 'Passkey authentication was not allowed. Please make sure you have a passkey set up for this device.';
+  }
+
+  // Invalid state (passkey doesn't exist)
+  if (errorMessage.includes('InvalidStateError')) {
+    return 'A passkey is already registered for this account on this device. Try logging in instead.';
+  }
+
+  // Credential not found
+  if (errorMessage.includes('NotFoundError') || errorMessage.includes('not found')) {
+    return 'No passkey found for this account on this device. Please register first.';
+  }
+
+  // Network/server errors
+  if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+    return 'Network error. Please check your connection and try again.';
+  }
+
+  // Session expired
+  if (errorMessage.includes('session expired') || errorMessage.includes('Authentication session expired')) {
+    return 'Your session expired. Please try again.';
+  }
+
+  // User not found
+  if (errorMessage.includes('User not found')) {
+    return 'No account found with this username. Please register first.';
+  }
+
+  // Verification failed
+  if (errorMessage.includes('Verification failed')) {
+    return 'Authentication failed. Please try again or re-register your passkey.';
+  }
+
+  // Default to original error if we don't recognize it
+  return errorMessage || 'An error occurred. Please try again.';
+}
+
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
@@ -52,7 +105,7 @@ export default function LoginPage() {
       router.push('/');
     } catch (err: any) {
       console.error('Registration error:', err);
-      setError(err.message || 'Registration failed. Please try again.');
+      setError(getUserFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -99,7 +152,7 @@ export default function LoginPage() {
       router.push('/');
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message || 'Login failed. Please try again.');
+      setError(getUserFriendlyError(err));
     } finally {
       setLoading(false);
     }
