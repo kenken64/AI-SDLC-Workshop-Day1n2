@@ -14,11 +14,17 @@ export async function POST(request: NextRequest) {
     const username = request.cookies.get('reg-username')?.value;
 
     if (!challenge || !username) {
+      console.error('[AUTH] Registration missing cookies - challenge:', !!challenge, 'username:', !!username);
       return NextResponse.json({ error: 'Registration session expired' }, { status: 400 });
     }
 
+    console.log('[AUTH] Registration for user:', username);
+
     // Get origin from request
     const origin = request.headers.get('origin') || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+
+    console.log('[AUTH] Registration origin:', origin);
+    console.log('[AUTH] Registration RPID:', rpID);
 
     const verification = await verifyRegistrationResponse({
       response: body,
@@ -28,7 +34,10 @@ export async function POST(request: NextRequest) {
       requireUserVerification: false,
     });
 
+    console.log('[AUTH] Registration verification result:', verification.verified);
+
     if (!verification.verified || !verification.registrationInfo) {
+      console.error('[AUTH] Registration verification failed');
       return NextResponse.json({ error: 'Verification failed' }, { status: 400 });
     }
 
@@ -48,10 +57,15 @@ export async function POST(request: NextRequest) {
     // Create user
     const user = userDB.create(username);
 
+    // Convert credential ID consistently: body.id is base64url, convert to base64 for storage
+    const credentialIdBase64 = Buffer.from(body.id, 'base64url').toString('base64');
+
+    console.log('[AUTH] Storing credential ID:', process.env.NODE_ENV === 'development' ? credentialIdBase64 : '***');
+
     // Store authenticator - pass transports array directly, not stringified
     authenticatorDB.create(
       user.id,
-      Buffer.from(finalCredentialID).toString('base64'),
+      credentialIdBase64,
       Buffer.from(finalCredentialPublicKey).toString('base64'),
       counter,
       credentialDeviceType,
@@ -69,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Registration verification error:', error);
+    console.error('[AUTH] Registration verification error:', error);
     return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
   }
 }

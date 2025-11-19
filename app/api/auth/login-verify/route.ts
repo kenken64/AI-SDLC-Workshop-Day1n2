@@ -14,8 +14,11 @@ export async function POST(request: NextRequest) {
     const username = request.cookies.get('auth-username')?.value;
 
     if (!challenge || !username) {
+      console.error('[AUTH] Missing cookies - challenge:', !!challenge, 'username:', !!username);
       return NextResponse.json({ error: 'Authentication session expired' }, { status: 400 });
     }
+
+    console.log('[AUTH] Login verification for user:', username);
 
     const user = userDB.findByUsername(username);
     if (!user) {
@@ -31,24 +34,24 @@ export async function POST(request: NextRequest) {
 
     // Try to find matching authenticator by credential ID
     const credentialId = Buffer.from(body.id, 'base64url').toString('base64');
-    console.log('Looking for credential:', credentialId);
-    console.log('User authenticators:', userAuthenticators.map(a => a.credential_id));
+    console.log('[AUTH] Looking for credential:', process.env.NODE_ENV === 'development' ? credentialId : '***');
+    console.log('[AUTH] User has', userAuthenticators.length, 'authenticator(s)');
 
     const authenticator = userAuthenticators.find(a => a.credential_id === credentialId);
 
     if (!authenticator) {
       // Credential ID might be in different encoding, just use the first authenticator if there's only one
       if (userAuthenticators.length === 1) {
-        console.log('Using single authenticator for user');
+        console.log('[AUTH] Using single authenticator for user');
         const singleAuth = userAuthenticators[0];
 
         // Get origin from request
         const origin = request.headers.get('origin') || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
-        console.log('Verifying authentication with counter:', singleAuth.counter);
-        console.log('Expected challenge:', challenge);
-        console.log('Expected origin:', origin);
-        console.log('Expected RPID:', rpID);
+        console.log('[AUTH] Verifying authentication with counter:', singleAuth.counter);
+        console.log('[AUTH] Expected challenge:', process.env.NODE_ENV === 'development' ? challenge : '***');
+        console.log('[AUTH] Expected origin:', origin);
+        console.log('[AUTH] Expected RPID:', rpID);
 
         const verification = await verifyAuthenticationResponse({
           response: body,
@@ -63,16 +66,16 @@ export async function POST(request: NextRequest) {
           requireUserVerification: false,
         });
 
-        console.log('Verification result:', verification.verified);
-        console.log('New counter:', verification.authenticationInfo.newCounter);
+        console.log('[AUTH] Verification result:', verification.verified);
+        console.log('[AUTH] New counter:', verification.authenticationInfo.newCounter);
 
         if (!verification.verified) {
-          console.error('Verification failed - details:', verification);
+          console.error('[AUTH] Verification failed');
           return NextResponse.json({ error: 'Verification failed' }, { status: 400 });
         }
 
         // Update counter
-        console.log('Updating counter for credential:', singleAuth.credential_id, 'to', verification.authenticationInfo.newCounter);
+        console.log('[AUTH] Updating counter to:', verification.authenticationInfo.newCounter);
         authenticatorDB.updateCounter(singleAuth.credential_id, verification.authenticationInfo.newCounter);
 
         // Create session
@@ -92,10 +95,10 @@ export async function POST(request: NextRequest) {
     // Get origin from request
     const origin = request.headers.get('origin') || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
-    console.log('Verifying authentication (matched) with counter:', authenticator.counter);
-    console.log('Expected challenge:', challenge);
-    console.log('Expected origin:', origin);
-    console.log('Expected RPID:', rpID);
+    console.log('[AUTH] Verifying authentication (matched) with counter:', authenticator.counter);
+    console.log('[AUTH] Expected challenge:', process.env.NODE_ENV === 'development' ? challenge : '***');
+    console.log('[AUTH] Expected origin:', origin);
+    console.log('[AUTH] Expected RPID:', rpID);
 
     const verification = await verifyAuthenticationResponse({
       response: body,
@@ -110,16 +113,16 @@ export async function POST(request: NextRequest) {
       requireUserVerification: false,
     });
 
-    console.log('Verification result (matched):', verification.verified);
-    console.log('New counter (matched):', verification.authenticationInfo.newCounter);
+    console.log('[AUTH] Verification result (matched):', verification.verified);
+    console.log('[AUTH] New counter (matched):', verification.authenticationInfo.newCounter);
 
     if (!verification.verified) {
-      console.error('Verification failed (matched) - details:', verification);
+      console.error('[AUTH] Verification failed (matched)');
       return NextResponse.json({ error: 'Verification failed' }, { status: 400 });
     }
 
     // Update counter
-    console.log('Updating counter for credential:', authenticator.credential_id, 'to', verification.authenticationInfo.newCounter);
+    console.log('[AUTH] Updating counter to:', verification.authenticationInfo.newCounter);
     authenticatorDB.updateCounter(authenticator.credential_id, verification.authenticationInfo.newCounter);
 
     // Create session
@@ -132,7 +135,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Authentication verification error:', error);
+    console.error('[AUTH] Authentication verification error:', error);
     return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
   }
 }
