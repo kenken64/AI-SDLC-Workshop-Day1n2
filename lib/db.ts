@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { getSingaporeNow } from './timezone';
 
-const dbPath = path.join(process.cwd(), 'todos.db');
+const dataDir = process.env.DATA_DIR || process.cwd();
+const dbPath = path.join(dataDir, 'todos.db');
 const db = new Database(dbPath);
 
 // Initialize database schema

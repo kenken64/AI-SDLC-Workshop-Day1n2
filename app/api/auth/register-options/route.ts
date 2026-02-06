@@ -3,8 +3,11 @@ import { generateRegistrationOptions } from '@simplewebauthn/server';
 import { userDB } from '@/lib/db';
 
 const rpName = 'Todo App';
-const rpID = process.env.NEXT_PUBLIC_RP_ID || 'localhost';
-const origin = process.env.NEXT_PUBLIC_ORIGIN || 'http://localhost:3000';
+
+function getRpID(request: NextRequest): string {
+  const host = request.headers.get('host') || request.nextUrl.host;
+  return host.split(':')[0];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Username already exists' }, { status: 400 });
     }
 
+    const rpID = getRpID(request);
     const options = await generateRegistrationOptions({
       rpName,
       rpID,

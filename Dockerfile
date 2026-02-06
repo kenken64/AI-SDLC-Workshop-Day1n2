@@ -14,16 +14,13 @@ RUN npm ci
 # Copy application code
 COPY . .
 
-# Accept build arguments from Railway environment variables
-ARG NEXT_PUBLIC_RP_ID
-ENV NEXT_PUBLIC_RP_ID=$NEXT_PUBLIC_RP_ID
-
 # Build Next.js app
 ENV NODE_ENV=production
 RUN npm run build
 
-# Create todos.db file with correct permissions
-RUN touch /app/todos.db
+# Create persistent data directory for SQLite on Railway volume
+RUN mkdir -p /app/data
+ENV DATA_DIR=/app/data
 
 EXPOSE 3000
 

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
-import { isoBase64URL } from '@simplewebauthn/server/helpers';
+
 import { userDB, authenticatorDB } from '@/lib/db';
 
-const rpID = process.env.NEXT_PUBLIC_RP_ID || 'localhost';
+function getRpID(request: NextRequest): string {
+  const host = request.headers.get('host') || request.nextUrl.host;
+  return host.split(':')[0];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest) {
       transports: auth.transports ? JSON.parse(auth.transports) : undefined,
     }));
 
+    const rpID = getRpID(request);
     const options = await generateAuthenticationOptions({
       rpID,
       userVerification: 'preferred',

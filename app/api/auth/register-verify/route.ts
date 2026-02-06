@@ -4,7 +4,10 @@ import type { RegistrationResponseJSON } from '@simplewebauthn/server';
 import { userDB, authenticatorDB } from '@/lib/db';
 import { createSession } from '@/lib/auth';
 
-const rpID = process.env.NEXT_PUBLIC_RP_ID || 'localhost';
+function getRpID(request: NextRequest): string {
+  const host = request.headers.get('host') || request.nextUrl.host;
+  return host.split(':')[0];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +23,8 @@ export async function POST(request: NextRequest) {
 
     console.log('[AUTH] Registration for user:', username);
 
-    // Get origin from request
+    // Derive RP ID and origin from request to match the browser's domain
+    const rpID = getRpID(request);
     const origin = request.headers.get('origin') || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
     console.log('[AUTH] Registration origin:', origin);
