@@ -18,10 +18,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Don't specify allowCredentials - let the browser find any passkey for this site
+    // Provide allowCredentials so Windows Hello can find non-discoverable credentials
+    const userAuthenticators = authenticatorDB.findByUserId(user.id);
+    const allowCredentials = userAuthenticators.map(auth => ({
+      id: Buffer.from(auth.credential_id, 'base64').toString('base64url'),
+      transports: auth.transports ? JSON.parse(auth.transports) : undefined,
+    }));
+
     const options = await generateAuthenticationOptions({
       rpID,
-      userVerification: 'discouraged',
+      userVerification: 'preferred',
+      allowCredentials,
     });
 
     // Store challenge in cookie for verification

@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
       userName: username.trim(),
       attestationType: 'none',
       authenticatorSelection: {
-        residentKey: 'discouraged',
-        userVerification: 'discouraged',
+        residentKey: 'preferred',
+        userVerification: 'preferred',
       },
     });
 
