@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 
 // Convert WebAuthn errors to user-friendly messages
 function getUserFriendlyError(error: any): string {
@@ -62,7 +62,25 @@ export default function LoginPage() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true);
+  const [platformAuthAvailable, setPlatformAuthAvailable] = useState(true);
   const router = useRouter();
+
+  useEffect(() => {
+    const checkWebAuthn = async () => {
+      if (!browserSupportsWebAuthn()) {
+        setWebAuthnSupported(false);
+        return;
+      }
+      try {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        setPlatformAuthAvailable(available);
+      } catch {
+        setPlatformAuthAvailable(false);
+      }
+    };
+    checkWebAuthn();
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,7 +230,23 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+        {!webAuthnSupported && (
+          <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <p className="text-sm text-red-600 dark:text-red-400">
+              <strong>Browser not supported.</strong> Your browser does not support passkeys. Please use Chrome, Edge, Firefox, or Safari.
+            </p>
+          </div>
+        )}
+
+        {webAuthnSupported && !platformAuthAvailable && (
+          <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+            <p className="text-sm text-yellow-700 dark:text-yellow-400">
+              <strong>Setup required.</strong> No platform authenticator detected. On Windows, enable Windows Hello (Settings &gt; Accounts &gt; Sign-in options &gt; set up a PIN). On macOS, enable Touch ID. You can also use a USB security key.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
           <p className="text-xs text-gray-600 dark:text-gray-400">
             <strong>Passkeys</strong> use your device's biometrics (fingerprint, face recognition) or PIN for secure authentication.
             No passwords needed!
