@@ -1,0 +1,208 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --ink: #1c2430;
+  --muted: #5b677a;
+  --border: #d9e0e7;
+  --accent: #1167b1;
+  --accent-2: #0f8d79;
+  --danger: #c0392b;
+  --warning: #c67d00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  background: radial-gradient(circle at 20% 15%, #eef4ff 0%, #f4f6f8 45%, #eaf6ef 100%);
+  color: var(--ink);
+  min-height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.container {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(20, 20, 20, 0.05);
+}
+
+.row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  filter: brightness(0.98);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.success {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #fff;
+}
+
+.btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 180px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  background: #fff;
+}
+
+.todo-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.todo-card {
+  padding: 0.75rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+}
+
+.priority-high {
+  background: #fdecea;
+  color: #a83322;
+  border-color: #f4c8c2;
+}
+
+.priority-medium {
+  background: #fff6e8;
+  color: #8a5e00;
+  border-color: #f2debb;
+}
+
+.priority-low {
+  background: #ebf5ff;
+  color: #165590;
+  border-color: #c8dff6;
+}
+
+.progress {
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  background: #edf1f5;
+  overflow: hidden;
+}
+
+.progress > span {
+  display: block;
+  height: 100%;
+  background: #2f89fc;
+}
+
+.progress.done > span {
+  background: #128b55;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 19, 27, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+}
+
+.modal-content {
+  width: min(720px, 96vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.calendar-cell {
+  min-height: 110px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.45rem;
+  text-align: left;
+}
+
+.calendar-cell.today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(17, 103, 177, 0.12) inset;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.section-title {
+  margin: 1rem 0 0.5rem;
+}
+
+.auth-card {
+  width: min(560px, 96vw);
+  margin: 8vh auto;
+  padding: 1rem;
+}
+
+@media (max-width: 720px) {
+  .calendar-cell {
+    min-height: 86px;
+  }
+}

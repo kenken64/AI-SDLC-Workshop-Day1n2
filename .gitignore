@@ -1,0 +1,12 @@
+node_modules/
+.next/
+playwright-report/
+test-results/
+coverage/
+.env.local
+.env
+!.env.example
+
+todos.db
+todos.db-shm
+todos.db-wal
