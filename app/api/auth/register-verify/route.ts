@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       expectedChallenge,
       expectedOrigin: `${request.headers.get('x-forwarded-proto') ?? 'http'}://${request.headers.get('host')}`,
       expectedRPID: rpID,
+      requireUserVerification: false,
     });
 
     registrationChallenges.delete(trimmed);

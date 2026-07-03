@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
       expectedChallenge,
       expectedOrigin: `${request.headers.get('x-forwarded-proto') ?? 'http'}://${request.headers.get('host')}`,
       expectedRPID: rpID,
+      requireUserVerification: false,
       credential: {
         id: authenticator.credential_id,
         publicKey: new Uint8Array(authenticator.credential_public_key),
