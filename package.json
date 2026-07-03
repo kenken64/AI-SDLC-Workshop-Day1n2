@@ -11,7 +11,7 @@
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.11.1",
     "jose": "^6.2.3",
     "next": "^15.3.3",
     "react": "^19.0.0",
@@ -29,7 +29,7 @@
     "typescript": "^5"
   },
   "allowScripts": {
-    "better-sqlite3@11.10.0": true,
+    "better-sqlite3@12.11.1": true,
     "sharp@0.34.5": true,
     "unrs-resolver@1.12.2": true
   }

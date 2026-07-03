@@ -2,7 +2,7 @@
 
 > Last updated: 2026-07-03  
 > Branch: `zentilt-run-dev-server`  
-> Commit: `64a7cd1`
+> Commit: `2bc52a8`
 
 ---
 
@@ -16,11 +16,11 @@
 | PRP 04 | Reminders & Notifications | ✅ Done | 2026-07-03 |
 | PRP 05 | Subtasks & Progress | ✅ Done | 2026-07-03 |
 | PRP 06 | Tag System | ✅ Done | 2026-07-03 |
-| [PRP 07](#prp-07--template-system) | Template System | ⬜ Not started | — |
-| PRP 08 | Search & Filtering | ⬜ Not started | — |
-| PRP 09 | Export / Import | ⬜ Not started | — |
-| PRP 10 | Calendar View | ⬜ Not started | — |
-| ~~PRP 11~~ | ~~WebAuthn / Passkeys~~ | 🗑️ Removed | 2026-07-03 |
+| [PRP 07](#prp-07--template-system) | Template System | ✅ Done | 2026-07-03 |
+| [PRP 08](#prp-08--search--advanced-filtering) | Search & Filtering | ✅ Done | 2026-07-03 |
+| [PRP 09](#prp-09--export--import) | Export / Import | ✅ Done | 2026-07-03 |
+| [PRP 10](#prp-10--calendar-view) | Calendar View | ✅ Done | 2026-07-03 |
+| [PRP 11](#prp-11--webauthn--passkeys-authentication) | WebAuthn / Passkeys | ✅ Done | 2026-07-03 |
 
 ---
 
@@ -204,7 +204,270 @@ if (wasCompleted && isRecurring && pattern && existing.due_date):
 
 ---
 
-## PRP 04 — Reminders & Notifications
+## PRP 07 — Template System
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/07-template-system.md`](./07-template-system.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `templates` table: `id`, `user_id`, `name`, `description`, `category`, `title_template`, `priority`, `is_recurring`, `recurrence_pattern`, `reminder_minutes`, `subtasks_json`, `created_at`
+- [x] `Template`, `TemplateSubtask`, `CreateTemplateInput` interfaces exported
+- [x] `templateDB.findByUserId(userId)` — ordered by category, name
+- [x] `templateDB.findById(id)`
+- [x] `templateDB.create(input)` — with optional subtasks JSON
+- [x] `templateDB.delete(id)`
+
+#### API routes
+- [x] `GET /api/templates` — returns user's templates
+- [x] `POST /api/templates` — validates name + titleTemplate; returns `201 Template`
+- [x] `DELETE /api/templates/[id]` — ownership check
+- [x] `POST /api/templates/[id]/use` — creates todo (+ subtasks from `subtasks_json`) from template; returns `201 Todo`
+
+#### UI (`app/page.tsx`)
+- [x] `Template` interface added to client types
+- [x] `templates` state + `fetchTemplates()` callback
+- [x] **📋 Templates** button in header → templates modal
+- [x] Templates modal: lists all templates with priority badge, category pill, title, description; **Use** and **Delete** actions per row
+- [x] **Use a template…** dropdown at top of add form (creates todo immediately via API)
+- [x] **💾 Save as Template** button in add form (visible when title non-empty) → save-as-template modal
+- [x] Save-as-template modal: name (required), category, description fields
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Template saved from add form with name/category/description | ✅ |
+| Template appears in Use Template dropdown | ✅ |
+| Using a template creates todo immediately | ✅ |
+| Template subtasks recreated on use | ✅ |
+| Templates modal shows all templates with priority badge | ✅ |
+| Delete removes template from library | ✅ |
+| Existing todos unaffected by template deletion | ✅ |
+
+---
+
+## PRP 08 — Search & Advanced Filtering
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/08-search-filtering.md`](./08-search-filtering.md)
+
+### What was implemented
+
+#### Client-side filter state (`app/page.tsx`)
+- [x] `FilterState` interface: `search`, `priority`, `tagId`, `completion`, `dateFrom`, `dateTo`
+- [x] `FilterPreset` interface: `id`, `name`, `filters`
+- [x] `DEFAULT_FILTERS` constant
+- [x] `applyFilters(todos, filters)` — pure filter function:
+  - Search: matches title OR any subtask title (case-insensitive partial match)
+  - Priority, tag, completion status, date range — AND logic
+- [x] Replaced `filterPriority` + `filterTag` states with unified `filters: FilterState`
+- [x] `hasActiveFilters` computed flag
+
+#### UI (`app/page.tsx`)
+- [x] **Search bar** with 🔍 icon and ✕ clear button; real-time filtering as user types
+- [x] **Quick filters row**: priority dropdown (`data-testid="priority-filter"`), tag dropdown (`data-testid="tag-filter"`), **► Advanced** toggle, **Clear All**, **💾 Save Filter** buttons
+- [x] **Advanced panel**: Status (All/Incomplete/Completed), Due Date From, Due Date To
+- [x] **Saved presets**: named presets stored in `localStorage` under `'todo-filter-presets'`; click to apply, ✕ to delete
+- [x] Save Filter Preset modal with name input (Enter key submits)
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Search filters todos in real-time as user types | ✅ |
+| Search matches title AND subtask titles (case-insensitive) | ✅ |
+| Clear (✕) button clears search | ✅ |
+| Priority filter instant client-side | ✅ |
+| Tag filter hidden when user has no tags | ✅ |
+| Advanced panel opens/closes | ✅ |
+| Completion filter: Incomplete Only / Completed Only | ✅ |
+| Date range filters by due_date | ✅ |
+| "Clear All" resets all filters | ✅ |
+| Presets saved to localStorage and survive page reload | ✅ |
+| Preset applied by clicking its pill | ✅ |
+| No results shows empty sections (not an error) | ✅ |
+
+---
+
+## PRP 09 — Export / Import
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/09-export-import.md`](./09-export-import.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `tagDB.findByUserAndName(userId, name)` — for tag matching during import
+
+#### API routes
+- [x] `GET /api/todos/export?format=json` — returns `todos-YYYY-MM-DD.json` with subtasks and tags per todo
+- [x] `GET /api/todos/export?format=csv` — returns `todos-YYYY-MM-DD.csv` (one row per todo)
+- [x] `POST /api/todos/import` — accepts JSON array; creates todos with new IDs; recreates subtasks; matches tags by name, creates if missing
+
+#### UI (`app/page.tsx`)
+- [x] **Export JSON** button — triggers browser download via anchor element
+- [x] **Export CSV** button — triggers browser download
+- [x] **Import** label/button with hidden `<input type="file" accept=".json">` — reads file, POSTs to import API
+- [x] Import success message: "Successfully imported X todos"
+- [x] Import error message displayed inline
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Export JSON downloads with correct filename | ✅ |
+| JSON export includes subtasks and tags per todo | ✅ |
+| Export CSV downloads one row per todo | ✅ |
+| Import opens file picker filtered to `.json` | ✅ |
+| Importing creates todos with new IDs | ✅ |
+| Subtasks recreated on import | ✅ |
+| Tags matched by name; new tags created if missing | ✅ |
+| Success message shows count | ✅ |
+| Invalid JSON shows error message | ✅ |
+
+---
+
+## PRP 10 — Calendar View
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/10-calendar-view.md`](./10-calendar-view.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `holidays` table: `id`, `date` (YYYY-MM-DD, UNIQUE), `name`, `country`
+- [x] `Holiday` interface exported
+- [x] `holidayDB.findByMonth(year, month)` — filters by date prefix and country='SG'
+
+#### Seed script (`scripts/seed-holidays.ts`)
+- [x] Seeds 22 Singapore public holidays 2025–2026 with `INSERT OR IGNORE`
+- [x] Run with: `npx tsx scripts/seed-holidays.ts`
+
+#### API routes
+- [x] `GET /api/holidays?year=Y&month=M` — returns Singapore holidays for the given month
+
+#### UI (`app/calendar/page.tsx`)
+- [x] Fetches todos from `GET /api/todos` on mount
+- [x] Fetches holidays from `GET /api/holidays?year=Y&month=M` on month change
+- [x] Month navigation: ◄ / ► buttons + **Today** button
+- [x] `data-testid="month-label"` on month display span
+- [x] Day cells: color-coded todo pills (Red=High, Yellow=Medium, Blue=Low)
+- [x] Up to 3 pills per cell; `+N more` indicator for overflow
+- [x] Full title in `title` attribute (tooltip on hover)
+- [x] Today highlighted with blue circle
+- [x] Past dates visually dimmed
+- [x] Holiday cells: amber background + 🎉 name
+- [x] Completed todos shown with strikethrough/dimmed opacity
+- [x] Color legend below calendar
+- [x] **Logout** button in header
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Calendar at `/calendar` redirects to `/login` if unauthenticated | ✅ |
+| Current month shown by default | ✅ |
+| Todos with due dates appear on correct cells | ✅ |
+| Todo pills color-coded by priority | ✅ |
+| Up to 3 pills per cell; `+N more` for overflow | ✅ |
+| Full title in tooltip on hover | ✅ |
+| Today highlighted (blue circle) | ✅ |
+| Past dates dimmed | ✅ |
+| ◄ / ► navigation works | ✅ |
+| Today button returns to current month | ✅ |
+| Singapore holidays displayed when seeded | ✅ |
+| Color legend shown | ✅ |
+
+---
+
+## PRP 11 — WebAuthn / Passkeys Authentication
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/11-authentication-webauthn.md`](./11-authentication-webauthn.md)
+
+### What was implemented
+
+#### Dependencies installed
+- [x] `@simplewebauthn/server` — server-side WebAuthn verification
+- [x] `@simplewebauthn/browser` — client-side passkey UI
+- [x] `jose` — JWT signing and verification
+
+#### Database (`lib/db.ts`)
+- [x] `users` table: `id`, `username` (UNIQUE), `created_at`
+- [x] `authenticators` table: `id`, `user_id`, `credential_id` (UNIQUE), `credential_public_key` (BLOB), `counter`, `transports`, `created_at`
+- [x] `User`, `Authenticator` interfaces exported
+- [x] `userDB.findByUsername`, `findById`, `create`
+- [x] `authenticatorDB.findByCredentialId`, `findByUserId`, `create`, `updateCounter`
+- [x] `todoDB.findByUserId(userId)` — user-scoped todo query
+- [x] `CreateTodoInput.userId` optional field (falls back to `SYSTEM_USER_ID`)
+
+#### Session management (`lib/auth.ts`)
+- [x] `createSession(payload)` — signs HS256 JWT, 7-day expiry, using `JWT_SECRET` env var
+- [x] `verifySession(token)` — verifies and decodes JWT
+- [x] `getSession()` — reads cookie and verifies session server-side
+- [x] `setSessionCookie(token)` — HTTP-only, SameSite=lax, 7-day maxAge
+- [x] `clearSessionCookie()` — deletes the `token` cookie
+
+#### Challenge store (`lib/challenges.ts`)
+- [x] In-memory `Map` for registration and login challenges (single-instance dev)
+
+#### Middleware (`middleware.ts`)
+- [x] Protects `/` and `/calendar` routes
+- [x] Missing token → redirect to `/login`
+- [x] Invalid/expired token → delete cookie + redirect to `/login`
+- [x] `matcher: ['/', '/calendar', '/calendar/:path*']`
+
+#### Auth API routes
+- [x] `POST /api/auth/register-options` — `generateRegistrationOptions`; creates user if new; stores challenge
+- [x] `POST /api/auth/register-verify` — `verifyRegistrationResponse`; stores authenticator; creates JWT session
+- [x] `POST /api/auth/login-options` — `generateAuthenticationOptions`; 404 if user not found
+- [x] `POST /api/auth/login-verify` — `verifyAuthenticationResponse` with `?? 0` for counter; updates counter; creates JWT session
+- [x] `POST /api/auth/logout` — clears session cookie
+- [x] `GET /api/auth/me` — returns `{ userId, username }` for current session
+
+#### Login page (`app/login/page.tsx`)
+- [x] Username input + **🔑 Login** (blue) + **✨ Register** (green) buttons
+- [x] Registration: `startRegistration({ optionsJSON })` → verify → redirect to `/`
+- [x] Login: `startAuthentication({ optionsJSON })` → verify → redirect to `/`
+- [x] Error display for: no user found, cancelled, verification failure
+- [x] Loading state disables both buttons; shows "Registering…" / "Signing in…"
+- [x] Footer: "Uses WebAuthn/Passkeys — no passwords required"
+
+#### All existing API routes updated
+- [x] `GET /api/todos`, `POST /api/todos` — require session; use `session.userId`
+- [x] `PUT /api/todos/[id]`, `DELETE /api/todos/[id]` — ownership check via `session.userId`
+- [x] `GET/POST /api/tags`, `PUT/DELETE /api/tags/[id]` — session-scoped
+- [x] `GET/POST /api/templates`, `DELETE /api/templates/[id]`, `POST /api/templates/[id]/use` — session-scoped
+- [x] `GET /api/notifications/check` — session-scoped
+- [x] `GET /api/todos/export`, `POST /api/todos/import` — session-scoped
+- [x] `GET /api/holidays` — public (no auth required)
+
+#### Main UI (`app/page.tsx`)
+- [x] Fetches `GET /api/auth/me` on mount to show `@username` in header
+- [x] **Logout** button in header → `POST /api/auth/logout` + redirect to `/login`
+- [x] `GET /api/todos` 401 response redirects to `/login`
+
+#### Environment
+- [x] `.env.local.example` with `JWT_SECRET=change-me...` placeholder
+- [x] `.env.local` created with dev secret (not committed)
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| `/login` page has username input, Register + Login buttons | ✅ |
+| Registering creates user + authenticator + JWT session | ✅ |
+| Logging in authenticates via passkey + sets JWT cookie | ✅ |
+| After auth, user redirected to `/` | ✅ |
+| JWT cookie is HTTP-only, 7-day expiry | ✅ |
+| Middleware redirects unauthenticated `/` and `/calendar` to `/login` | ✅ |
+| Expired/invalid JWT cleared + redirect to `/login` | ✅ |
+| Logout clears cookie + redirects to `/login` | ✅ |
+| Error messages for: user not found, cancelled, verification failure | ✅ |
+| Counter updated in DB after successful login | ✅ |
+| `requireUserVerification: false` set in both verify routes | ✅ |
 
 **Status:** ✅ Complete  
 **Spec file:** [`PRPs/04-reminders-notifications.md`](./04-reminders-notifications.md)
