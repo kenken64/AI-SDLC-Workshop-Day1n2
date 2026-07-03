@@ -13,9 +13,9 @@
 | [PRP 01](#prp-01--todo-crud-operations) | Todo CRUD Operations | ✅ Done | 2026-07-03 |
 | [PRP 02](#prp-02--priority-system) | Priority System | ✅ Done | 2026-07-03 |
 | [PRP 03](#prp-03--recurring-todos) | Recurring Todos | ✅ Done | 2026-07-03 |
-| PRP 04 | Reminders & Notifications | ⬜ Not started | — |
-| PRP 05 | Subtasks & Progress | ⬜ Not started | — |
-| PRP 06 | Tag System | ⬜ Not started | — |
+| PRP 04 | Reminders & Notifications | ✅ Done | 2026-07-03 |
+| PRP 05 | Subtasks & Progress | ✅ Done | 2026-07-03 |
+| PRP 06 | Tag System | ✅ Done | 2026-07-03 |
 | PRP 07 | Template System | ⬜ Not started | — |
 | PRP 08 | Search & Filtering | ⬜ Not started | — |
 | PRP 09 | Export / Import | ⬜ Not started | — |

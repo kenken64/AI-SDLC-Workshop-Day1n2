@@ -49,6 +49,35 @@ function initSchema(db: Database.Database): void {
   if (!cols.includes('reminder_minutes')) {
     db.exec("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER");
   }
+  if (!cols.includes('last_notification_sent')) {
+    db.exec("ALTER TABLE todos ADD COLUMN last_notification_sent TEXT");
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS subtasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      todo_id INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL DEFAULT 1,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#3B82F6',
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_tags (
+      todo_id INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+      PRIMARY KEY (todo_id, tag_id)
+    );
+  `);
 }
 
 export { SYSTEM_USER_ID };
@@ -68,6 +97,7 @@ export interface Todo {
   is_recurring: number;                   // 0 | 1
   recurrence_pattern: RecurrencePattern | null;
   reminder_minutes: number | null;
+  last_notification_sent: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -141,6 +171,7 @@ export const todoDB = {
       : input.completed === false ? null
       : current.completed_at;
 
+    const resetNotification = 'due_date' in input || 'reminder_minutes' in input;
     db.prepare(
       `UPDATE todos SET
         title = ?,
@@ -150,6 +181,7 @@ export const todoDB = {
         is_recurring = ?,
         recurrence_pattern = ?,
         reminder_minutes = ?,
+        last_notification_sent = ?,
         completed_at = ?,
         updated_at = ?
        WHERE id = ?`
@@ -161,6 +193,7 @@ export const todoDB = {
       input.is_recurring !== undefined ? (input.is_recurring ? 1 : 0) : current.is_recurring,
       'recurrence_pattern' in input ? (input.recurrence_pattern ?? null) : current.recurrence_pattern,
       'reminder_minutes' in input ? (input.reminder_minutes ?? null) : current.reminder_minutes,
+      resetNotification ? null : (current.last_notification_sent ?? null),
       completedAt,
       now,
       id
@@ -172,5 +205,157 @@ export const todoDB = {
   delete(id: number): boolean {
     const result = getDb().prepare('DELETE FROM todos WHERE id = ?').run(id);
     return result.changes > 0;
+  },
+
+  findDueReminders(userId: number, now: Date): Todo[] {
+    return getDb().prepare(`
+      SELECT * FROM todos
+      WHERE user_id = ?
+        AND completed = 0
+        AND due_date IS NOT NULL
+        AND reminder_minutes IS NOT NULL
+        AND last_notification_sent IS NULL
+        AND datetime(due_date, '-' || reminder_minutes || ' minutes') <= ?
+    `).all(userId, now.toISOString()) as Todo[];
+  },
+
+  markNotificationSent(id: number, sentAt: string): void {
+    getDb().prepare('UPDATE todos SET last_notification_sent = ? WHERE id = ?').run(sentAt, id);
+  },
+};
+
+// ─── Subtask Types & DB ───────────────────────────────────────────────────────
+
+export interface Subtask {
+  id: number;
+  todo_id: number;
+  title: string;
+  completed: number;   // 0 | 1
+  position: number;
+  created_at: string;
+}
+
+export interface CreateSubtaskInput {
+  todoId: number;
+  title: string;
+}
+
+export const subtaskDB = {
+  findByTodoId(todoId: number): Subtask[] {
+    return getDb()
+      .prepare('SELECT * FROM subtasks WHERE todo_id = ? ORDER BY position, created_at')
+      .all(todoId) as Subtask[];
+  },
+
+  findAll(): Subtask[] {
+    return getDb()
+      .prepare('SELECT * FROM subtasks ORDER BY todo_id, position, created_at')
+      .all() as Subtask[];
+  },
+
+  create(input: CreateSubtaskInput): Subtask {
+    const db = getDb();
+    const maxPos = db
+      .prepare('SELECT COALESCE(MAX(position), 0) as m FROM subtasks WHERE todo_id = ?')
+      .get(input.todoId) as { m: number };
+    const result = db
+      .prepare('INSERT INTO subtasks (todo_id, title, position) VALUES (?, ?, ?)')
+      .run(input.todoId, input.title, maxPos.m + 1);
+    return db.prepare('SELECT * FROM subtasks WHERE id = ?').get(result.lastInsertRowid) as Subtask;
+  },
+
+  update(id: number, completed: boolean): Subtask | undefined {
+    const db = getDb();
+    db.prepare('UPDATE subtasks SET completed = ? WHERE id = ?').run(completed ? 1 : 0, id);
+    return db.prepare('SELECT * FROM subtasks WHERE id = ?').get(id) as Subtask | undefined;
+  },
+
+  delete(id: number): boolean {
+    return getDb().prepare('DELETE FROM subtasks WHERE id = ?').run(id).changes > 0;
+  },
+};
+
+// ─── Tag Types & DB ───────────────────────────────────────────────────────────
+
+export interface Tag {
+  id: number;
+  user_id: number;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
+export interface CreateTagInput {
+  userId: number;
+  name: string;
+  color?: string;
+}
+
+export interface UpdateTagInput {
+  name?: string;
+  color?: string;
+}
+
+export const tagDB = {
+  findByUserId(userId: number): Tag[] {
+    return getDb()
+      .prepare('SELECT * FROM tags WHERE user_id = ? ORDER BY name')
+      .all(userId) as Tag[];
+  },
+
+  findById(id: number): Tag | undefined {
+    return getDb().prepare('SELECT * FROM tags WHERE id = ?').get(id) as Tag | undefined;
+  },
+
+  create(input: CreateTagInput): Tag {
+    const db = getDb();
+    const result = db
+      .prepare('INSERT INTO tags (user_id, name, color) VALUES (?, ?, ?)')
+      .run(input.userId, input.name.trim(), input.color ?? '#3B82F6');
+    return db.prepare('SELECT * FROM tags WHERE id = ?').get(result.lastInsertRowid) as Tag;
+  },
+
+  update(id: number, input: UpdateTagInput): Tag | undefined {
+    const db = getDb();
+    const current = db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as Tag | undefined;
+    if (!current) return undefined;
+    db.prepare('UPDATE tags SET name = ?, color = ? WHERE id = ?').run(
+      input.name ?? current.name,
+      input.color ?? current.color,
+      id
+    );
+    return db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as Tag;
+  },
+
+  delete(id: number): boolean {
+    return getDb().prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0;
+  },
+
+  setTodoTags(todoId: number, tagIds: number[]): void {
+    const db = getDb();
+    const deleteStmt = db.prepare('DELETE FROM todo_tags WHERE todo_id = ?');
+    const insertStmt = db.prepare('INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)');
+    db.transaction(() => {
+      deleteStmt.run(todoId);
+      for (const tagId of tagIds) insertStmt.run(todoId, tagId);
+    })();
+  },
+
+  getTagsForTodo(todoId: number): Tag[] {
+    return getDb().prepare(`
+      SELECT tags.* FROM tags
+      JOIN todo_tags ON todo_tags.tag_id = tags.id
+      WHERE todo_tags.todo_id = ?
+      ORDER BY tags.name
+    `).all(todoId) as Tag[];
+  },
+
+  findWithTodoIds(): (Tag & { todo_id: number })[] {
+    return getDb().prepare(`
+      SELECT tags.*, todo_tags.todo_id
+      FROM tags
+      JOIN todo_tags ON todo_tags.tag_id = tags.id
+      ORDER BY tags.name
+    `).all() as (Tag & { todo_id: number })[];
   },
 };

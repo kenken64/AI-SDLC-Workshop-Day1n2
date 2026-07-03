@@ -1,16 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { todoDB, Priority, RecurrencePattern } from '@/lib/db';
+import { todoDB, subtaskDB, tagDB, Tag, Priority, RecurrencePattern } from '@/lib/db';
 import { getSingaporeNow } from '@/lib/timezone';
+
+const VALID_REMINDER_MINUTES = [15, 30, 60, 120, 1440, 2880, 10080];
 
 export async function GET() {
   const todos = todoDB.findAll();
-  return NextResponse.json(todos);
+  const subtasks = subtaskDB.findAll();
+  const tagMappings = tagDB.findWithTodoIds();
+
+  const todoTagsMap: Record<number, Tag[]> = {};
+  for (const row of tagMappings) {
+    const { todo_id, ...tag } = row;
+    if (!todoTagsMap[todo_id]) todoTagsMap[todo_id] = [];
+    todoTagsMap[todo_id].push(tag as Tag);
+  }
+
+  return NextResponse.json(
+    todos.map(todo => ({
+      ...todo,
+      subtasks: subtasks.filter(s => s.todo_id === todo.id),
+      tags: todoTagsMap[todo.id] ?? [],
+    }))
+  );
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, priority, due_date, is_recurring, recurrence_pattern, reminder_minutes } = body;
+    const { title, priority, due_date, is_recurring, recurrence_pattern, reminder_minutes, tagIds } = body;
 
     if (!title || typeof title !== 'string' || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -40,6 +58,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid recurrence pattern' }, { status: 400 });
     }
 
+    if (reminder_minutes !== null && reminder_minutes !== undefined && !VALID_REMINDER_MINUTES.includes(reminder_minutes)) {
+      return NextResponse.json({ error: 'Invalid reminder value' }, { status: 400 });
+    }
+
     const todo = todoDB.create({
       title: title.trim(),
       priority: (priority as Priority) ?? 'medium',
@@ -49,7 +71,12 @@ export async function POST(request: NextRequest) {
       reminder_minutes: reminder_minutes ?? null,
     });
 
-    return NextResponse.json(todo, { status: 201 });
+    if (Array.isArray(tagIds) && tagIds.length > 0) {
+      tagDB.setTodoTags(todo.id, tagIds.filter((id: unknown) => typeof id === 'number'));
+    }
+
+    const tags = tagDB.getTagsForTodo(todo.id);
+    return NextResponse.json({ ...todo, subtasks: [], tags }, { status: 201 });
   } catch (error) {
     console.error('POST /api/todos error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

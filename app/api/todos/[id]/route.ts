@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { todoDB, Priority, RecurrencePattern } from '@/lib/db';
+import { todoDB, subtaskDB, tagDB, Priority, RecurrencePattern } from '@/lib/db';
 import { getSingaporeNow, getNextRecurrenceDate } from '@/lib/timezone';
 
 export async function PUT(
@@ -17,7 +17,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { title, priority, due_date, completed, is_recurring, recurrence_pattern, reminder_minutes } = body;
+    const { title, priority, due_date, completed, is_recurring, recurrence_pattern, reminder_minutes, tagIds } = body;
 
     if (title !== undefined && (!title || !title.trim())) {
       return NextResponse.json({ error: 'Title cannot be empty' }, { status: 400 });
@@ -53,7 +53,7 @@ export async function PUT(
     // Create next recurring instance when completing
     if (wasCompleted && isRecurring && pattern && existing.due_date) {
       const nextDueDate = getNextRecurrenceDate(existing.due_date, pattern);
-      todoDB.create({
+      const newTodo = todoDB.create({
         title: existing.title,
         priority: (priority as Priority | undefined) ?? existing.priority,
         due_date: nextDueDate,
@@ -61,9 +61,19 @@ export async function PUT(
         recurrence_pattern: pattern,
         reminder_minutes: existing.reminder_minutes ?? null,
       });
+      // Copy tags from original todo
+      const existingTagIds = tagDB.getTagsForTodo(todoId).map(t => t.id);
+      if (existingTagIds.length > 0) tagDB.setTodoTags(newTodo.id, existingTagIds);
     }
 
-    return NextResponse.json(updated);
+    // Update tags if provided
+    if (Array.isArray(tagIds)) {
+      tagDB.setTodoTags(todoId, tagIds.filter((id: unknown) => typeof id === 'number'));
+    }
+
+    const subtasks = subtaskDB.findByTodoId(todoId);
+    const tags = tagDB.getTagsForTodo(todoId);
+    return NextResponse.json({ ...updated, subtasks, tags });
   } catch (error) {
     console.error('PUT /api/todos/[id] error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
