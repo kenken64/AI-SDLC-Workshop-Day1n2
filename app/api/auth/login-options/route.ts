@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
 import { userDB, authenticatorDB } from '@/lib/db';
-import { loginChallenges } from '@/lib/challenges';
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,8 +27,15 @@ export async function POST(request: NextRequest) {
       userVerification: 'preferred',
     });
 
-    loginChallenges.set(cleanUsername, options.challenge);
-    return NextResponse.json(options);
+    const res = NextResponse.json(options);
+    res.cookies.set(`lc_${cleanUsername}`, options.challenge, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 300,
+      path: '/',
+    });
+    return res;
   } catch (error) {
     console.error('login-options error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

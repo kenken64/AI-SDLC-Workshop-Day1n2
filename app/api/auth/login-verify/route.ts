@@ -3,6 +3,7 @@ import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { userDB, authenticatorDB } from '@/lib/db';
 import { loginChallenges } from '@/lib/challenges';
 import { createSession, setSessionCookie } from '@/lib/auth';
+import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +19,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const expectedChallenge = loginChallenges.get(cleanUsername);
+    const cookieStore = await cookies();
+    const expectedChallenge = cookieStore.get(`lc_${cleanUsername}`)?.value;
     if (!expectedChallenge) {
       return NextResponse.json({ error: 'No challenge found. Start login again.' }, { status: 400 });
     }
@@ -54,7 +56,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Authentication verification failed' }, { status: 400 });
     }
 
-    loginChallenges.delete(cleanUsername);
+    // Clear the challenge cookie
+    cookieStore.delete(`lc_${cleanUsername}`);
     authenticatorDB.updateCounter(
       authenticator.credential_id,
       verification.authenticationInfo.newCounter ?? 0

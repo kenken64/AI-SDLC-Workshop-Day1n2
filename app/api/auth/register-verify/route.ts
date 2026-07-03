@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import { userDB, authenticatorDB } from '@/lib/db';
-import { registrationChallenges } from '@/lib/challenges';
 import { createSession, setSessionCookie } from '@/lib/auth';
+import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
     }
     const cleanUsername = username.trim().toLowerCase();
 
-    const expectedChallenge = registrationChallenges.get(cleanUsername);
+    const cookieStore = await cookies();
+    const expectedChallenge = cookieStore.get(`rc_${cleanUsername}`)?.value;
     if (!expectedChallenge) {
       return NextResponse.json({ error: 'No challenge found. Start registration again.' }, { status: 400 });
     }
@@ -35,7 +36,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Registration verification failed' }, { status: 400 });
     }
 
-    registrationChallenges.delete(cleanUsername);
+    // Clear the challenge cookie
+    cookieStore.delete(`rc_${cleanUsername}`);
 
     const { credential } = verification.registrationInfo;
     const user = userDB.findByUsername(cleanUsername)!;
