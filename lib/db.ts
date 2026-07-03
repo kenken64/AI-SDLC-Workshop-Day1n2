@@ -15,33 +15,20 @@ function getDb(): Database.Database {
   return _db;
 }
 
+const SYSTEM_USER_ID = 1;
+
 function initSchema(db: Database.Database): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS authenticators (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      credential_id TEXT UNIQUE NOT NULL,
-      credential_public_key BLOB NOT NULL,
-      counter INTEGER NOT NULL DEFAULT 0,
-      transports TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
     CREATE TABLE IF NOT EXISTS todos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL DEFAULT 1,
       title TEXT NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0,
       priority TEXT NOT NULL DEFAULT 'medium',
       due_date TEXT,
       is_recurring INTEGER NOT NULL DEFAULT 0,
       recurrence_pattern TEXT,
+      reminder_minutes INTEGER,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       completed_at TEXT
@@ -59,50 +46,40 @@ function initSchema(db: Database.Database): void {
   if (!cols.includes('completed_at')) {
     db.exec("ALTER TABLE todos ADD COLUMN completed_at TEXT");
   }
+  if (!cols.includes('reminder_minutes')) {
+    db.exec("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER");
+  }
 }
+
+export { SYSTEM_USER_ID };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Priority = 'high' | 'medium' | 'low';
 export type RecurrencePattern = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
-export interface User {
-  id: number;
-  username: string;
-  created_at: string;
-}
-
-export interface Authenticator {
-  id: number;
-  user_id: number;
-  credential_id: string;
-  credential_public_key: Buffer;
-  counter: number;
-  transports: string | null;
-  created_at: string;
-}
-
 export interface Todo {
   id: number;
   user_id: number;
   title: string;
-  completed: number; // 0 | 1 (SQLite)
+  completed: number;                      // 0 | 1 (SQLite)
   priority: Priority;
   due_date: string | null;
-  is_recurring: number; // 0 | 1
+  is_recurring: number;                   // 0 | 1
   recurrence_pattern: RecurrencePattern | null;
+  reminder_minutes: number | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
 }
 
 export interface CreateTodoInput {
-  userId: number;
   title: string;
   priority?: Priority;
   due_date?: string | null;
   is_recurring?: boolean;
   recurrence_pattern?: RecurrencePattern | null;
+  reminder_minutes?: number | null;
 }
 
 export interface UpdateTodoInput {
@@ -112,80 +89,22 @@ export interface UpdateTodoInput {
   completed?: boolean;
   is_recurring?: boolean;
   recurrence_pattern?: RecurrencePattern | null;
+  reminder_minutes?: number | null;
 }
-
-// ─── User DB ──────────────────────────────────────────────────────────────────
-
-export const userDB = {
-  findByUsername(username: string): User | undefined {
-    return getDb().prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
-  },
-
-  findById(id: number): User | undefined {
-    return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
-  },
-
-  create(username: string): User {
-    const result = getDb().prepare('INSERT INTO users (username) VALUES (?)').run(username);
-    return getDb().prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as User;
-  },
-};
-
-// ─── Authenticator DB ─────────────────────────────────────────────────────────
-
-export const authenticatorDB = {
-  findByCredentialId(credentialId: string): Authenticator | undefined {
-    return getDb()
-      .prepare('SELECT * FROM authenticators WHERE credential_id = ?')
-      .get(credentialId) as Authenticator | undefined;
-  },
-
-  findByUserId(userId: number): Authenticator[] {
-    return getDb()
-      .prepare('SELECT * FROM authenticators WHERE user_id = ?')
-      .all(userId) as Authenticator[];
-  },
-
-  create(data: {
-    userId: number;
-    credentialId: string;
-    credentialPublicKey: Buffer;
-    counter: number;
-    transports?: string;
-  }): void {
-    getDb()
-      .prepare(
-        'INSERT INTO authenticators (user_id, credential_id, credential_public_key, counter, transports) VALUES (?, ?, ?, ?, ?)'
-      )
-      .run(
-        data.userId,
-        data.credentialId,
-        data.credentialPublicKey,
-        data.counter,
-        data.transports ?? null
-      );
-  },
-
-  updateCounter(credentialId: string, counter: number): void {
-    getDb()
-      .prepare('UPDATE authenticators SET counter = ? WHERE credential_id = ?')
-      .run(counter, credentialId);
-  },
-};
 
 // ─── Todo DB ──────────────────────────────────────────────────────────────────
 
 export const todoDB = {
-  findByUserId(userId: number): Todo[] {
+  findAll(): Todo[] {
     return getDb()
       .prepare(
-        `SELECT * FROM todos WHERE user_id = ?
+        `SELECT * FROM todos
          ORDER BY
            CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
            due_date ASC NULLS LAST,
            created_at DESC`
       )
-      .all(userId) as Todo[];
+      .all() as Todo[];
   },
 
   findById(id: number): Todo | undefined {
@@ -196,16 +115,17 @@ export const todoDB = {
     const db = getDb();
     const result = db
       .prepare(
-        `INSERT INTO todos (user_id, title, priority, due_date, is_recurring, recurrence_pattern)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO todos (user_id, title, priority, due_date, is_recurring, recurrence_pattern, reminder_minutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        input.userId,
+        SYSTEM_USER_ID,
         input.title,
         input.priority ?? 'medium',
         input.due_date ?? null,
         input.is_recurring ? 1 : 0,
-        input.recurrence_pattern ?? null
+        input.recurrence_pattern ?? null,
+        input.reminder_minutes ?? null
       );
     return db.prepare('SELECT * FROM todos WHERE id = ?').get(result.lastInsertRowid) as Todo;
   },
@@ -229,6 +149,7 @@ export const todoDB = {
         completed = ?,
         is_recurring = ?,
         recurrence_pattern = ?,
+        reminder_minutes = ?,
         completed_at = ?,
         updated_at = ?
        WHERE id = ?`
@@ -239,6 +160,7 @@ export const todoDB = {
       input.completed !== undefined ? (input.completed ? 1 : 0) : current.completed,
       input.is_recurring !== undefined ? (input.is_recurring ? 1 : 0) : current.is_recurring,
       'recurrence_pattern' in input ? (input.recurrence_pattern ?? null) : current.recurrence_pattern,
+      'reminder_minutes' in input ? (input.reminder_minutes ?? null) : current.reminder_minutes,
       completedAt,
       now,
       id

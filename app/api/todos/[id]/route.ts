@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
 import { todoDB, Priority, RecurrencePattern } from '@/lib/db';
 import { getSingaporeNow, getNextRecurrenceDate } from '@/lib/timezone';
 
@@ -7,21 +6,18 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
   try {
     const { id } = await params;
     const todoId = parseInt(id, 10);
     if (isNaN(todoId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     const existing = todoDB.findById(todoId);
-    if (!existing || existing.user_id !== session.userId) {
+    if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
     const body = await request.json();
-    const { title, priority, due_date, completed, is_recurring, recurrence_pattern } = body;
+    const { title, priority, due_date, completed, is_recurring, recurrence_pattern, reminder_minutes } = body;
 
     if (title !== undefined && (!title || !title.trim())) {
       return NextResponse.json({ error: 'Title cannot be empty' }, { status: 400 });
@@ -51,18 +47,19 @@ export async function PUT(
       completed,
       is_recurring,
       recurrence_pattern,
+      reminder_minutes,
     });
 
     // Create next recurring instance when completing
     if (wasCompleted && isRecurring && pattern && existing.due_date) {
       const nextDueDate = getNextRecurrenceDate(existing.due_date, pattern);
       todoDB.create({
-        userId: session.userId,
         title: existing.title,
         priority: (priority as Priority | undefined) ?? existing.priority,
         due_date: nextDueDate,
         is_recurring: true,
         recurrence_pattern: pattern,
+        reminder_minutes: existing.reminder_minutes ?? null,
       });
     }
 
@@ -77,16 +74,13 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
   try {
     const { id } = await params;
     const todoId = parseInt(id, 10);
     if (isNaN(todoId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     const existing = todoDB.findById(todoId);
-    if (!existing || existing.user_id !== session.userId) {
+    if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

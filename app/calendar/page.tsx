@@ -40,12 +40,11 @@ export default function CalendarPage() {
   useEffect(() => {
     fetch('/api/todos')
       .then(async (res) => {
-        if (res.status === 401) { router.push('/login'); return; }
         setTodos(await res.json());
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [router]);
+  }, []);
 
   const todosWithDue = todos.filter(t => t.due_date && !t.completed);
 

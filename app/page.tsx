@@ -17,6 +17,7 @@ interface Todo {
   due_date: string | null;
   is_recurring: number;
   recurrence_pattern: RecurrencePattern | null;
+  reminder_minutes: number | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -83,14 +84,18 @@ function TodoItem({
   onDelete: (id: number) => void;
 }) {
   return (
-    <div className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
-      todo.completed
-        ? 'opacity-60 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
-        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-    }`}>
+    <div
+      data-testid="todo-item"
+      className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+        todo.completed
+          ? 'opacity-60 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+      }`}
+    >
       <input
         type="checkbox"
         checked={!!todo.completed}
+        aria-label={todo.title}
         onChange={() => onToggle(todo.id, !todo.completed)}
         className="mt-1 w-4 h-4 cursor-pointer accent-blue-600"
       />
@@ -131,6 +136,7 @@ function Section({
   onEdit,
   onDelete,
   variant = 'default',
+  testId,
 }: {
   title: string;
   todos: Todo[];
@@ -138,10 +144,14 @@ function Section({
   onEdit: (todo: Todo) => void;
   onDelete: (id: number) => void;
   variant?: 'overdue' | 'default';
+  testId?: string;
 }) {
   if (todos.length === 0) return null;
   return (
-    <div className={`rounded-xl p-4 ${variant === 'overdue' ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800' : 'bg-gray-50 dark:bg-gray-900/50'}`}>
+    <div
+      data-testid={testId}
+      className={`rounded-xl p-4 ${variant === 'overdue' ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800' : 'bg-gray-50 dark:bg-gray-900/50'}`}
+    >
       <h2 className={`font-semibold mb-3 ${variant === 'overdue' ? 'text-red-700 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
         {variant === 'overdue' ? '⚠️ ' : ''}{title} ({todos.length})
       </h2>
@@ -179,6 +189,9 @@ export default function HomePage() {
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
 
+  // Filters
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
+
   // Edit modal
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [editState, setEditState] = useState<EditState>({
@@ -191,7 +204,6 @@ export default function HomePage() {
   const fetchTodos = useCallback(async () => {
     try {
       const res = await fetch('/api/todos');
-      if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch');
       setTodos(await res.json());
     } catch {
@@ -199,14 +211,15 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => { fetchTodos(); }, [fetchTodos]);
 
   // ── Categorise todos ────────────────────────────────────────────────────────
-  const overdue = todos.filter(t => !t.completed && t.due_date && isSingaporePast(t.due_date));
-  const pending = todos.filter(t => !t.completed && !(t.due_date && isSingaporePast(t.due_date)));
-  const completed = todos.filter(t => !!t.completed);
+  const filteredTodos = filterPriority === 'all' ? todos : todos.filter(t => t.priority === filterPriority);
+  const overdue = filteredTodos.filter(t => !t.completed && t.due_date && isSingaporePast(t.due_date));
+  const pending = filteredTodos.filter(t => !t.completed && !(t.due_date && isSingaporePast(t.due_date)));
+  const completed = filteredTodos.filter(t => !!t.completed);
 
   // ── Add todo ────────────────────────────────────────────────────────────────
   async function handleAdd() {
@@ -310,12 +323,6 @@ export default function HomePage() {
     }
   }
 
-  // ── Logout ──────────────────────────────────────────────────────────────────
-  async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-  }
-
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -334,20 +341,12 @@ export default function HomePage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">📝 My Todos</h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push('/calendar')}
-              className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-            >
-              📅 Calendar
-            </button>
-            <button
-              onClick={handleLogout}
-              className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-            >
-              Logout
-            </button>
-          </div>
+          <button
+            onClick={() => router.push('/calendar')}
+            className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            📅 Calendar
+          </button>
         </div>
 
         {error && (
@@ -390,7 +389,7 @@ export default function HomePage() {
           </div>
 
           {/* Recurring toggle */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
               <input
                 type="checkbox"
@@ -412,6 +411,9 @@ export default function HomePage() {
                 <option value="yearly">Yearly</option>
               </select>
             )}
+            {newRecurring && !newDueDate && (
+              <p className="text-amber-600 dark:text-amber-400 text-xs">⚠️ Recurring todos need a due date</p>
+            )}
           </div>
 
           {addError && <p className="text-red-600 dark:text-red-400 text-xs">{addError}</p>}
@@ -425,10 +427,26 @@ export default function HomePage() {
           </button>
         </div>
 
+        {/* Priority Filter */}
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter:</label>
+          <select
+            data-testid="priority-filter"
+            value={filterPriority}
+            onChange={e => setFilterPriority(e.target.value as Priority | 'all')}
+            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Priorities</option>
+            <option value="high">High Priority</option>
+            <option value="medium">Medium Priority</option>
+            <option value="low">Low Priority</option>
+          </select>
+        </div>
+
         {/* Todo Sections */}
-        <Section title="Overdue" todos={overdue} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} variant="overdue" />
-        <Section title="Pending" todos={pending} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} />
-        <Section title="Completed" todos={completed} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} />
+        <Section title="Overdue" todos={overdue} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} variant="overdue" testId="overdue-section" />
+        <Section title="Pending" todos={pending} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} testId="pending-section" />
+        <Section title="Completed" todos={completed} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} testId="completed-section" />
 
         {todos.length === 0 && (
           <p className="text-center text-gray-500 dark:text-gray-400 py-12">
