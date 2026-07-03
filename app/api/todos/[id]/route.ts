@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { todoDB, subtaskDB, tagDB, Priority, RecurrencePattern } from '@/lib/db';
 import { getSingaporeNow, getNextRecurrenceDate } from '@/lib/timezone';
+import { getSession } from '@/lib/auth';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const { id } = await params;
     const todoId = parseInt(id, 10);
     if (isNaN(todoId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     const existing = todoDB.findById(todoId);
-    if (!existing) {
+    if (!existing || existing.user_id !== session.userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
@@ -54,6 +58,7 @@ export async function PUT(
     if (wasCompleted && isRecurring && pattern && existing.due_date) {
       const nextDueDate = getNextRecurrenceDate(existing.due_date, pattern);
       const newTodo = todoDB.create({
+        userId: session.userId,
         title: existing.title,
         priority: (priority as Priority | undefined) ?? existing.priority,
         due_date: nextDueDate,
@@ -85,12 +90,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const { id } = await params;
     const todoId = parseInt(id, 10);
     if (isNaN(todoId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     const existing = todoDB.findById(todoId);
-    if (!existing) {
+    if (!existing || existing.user_id !== session.userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

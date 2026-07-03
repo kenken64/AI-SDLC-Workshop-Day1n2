@@ -19,6 +19,22 @@ const SYSTEM_USER_ID = 1;
 
 function initSchema(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS authenticators (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      credential_id TEXT UNIQUE NOT NULL,
+      credential_public_key BLOB NOT NULL,
+      counter INTEGER NOT NULL DEFAULT 0,
+      transports TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS todos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL DEFAULT 1,
@@ -127,6 +143,7 @@ export interface Todo {
 
 export interface CreateTodoInput {
   title: string;
+  userId?: number;
   priority?: Priority;
   due_date?: string | null;
   is_recurring?: boolean;
@@ -159,6 +176,18 @@ export const todoDB = {
       .all() as Todo[];
   },
 
+  findByUserId(userId: number): Todo[] {
+    return getDb()
+      .prepare(
+        `SELECT * FROM todos WHERE user_id = ?
+         ORDER BY
+           CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+           due_date ASC NULLS LAST,
+           created_at DESC`
+      )
+      .all(userId) as Todo[];
+  },
+
   findById(id: number): Todo | undefined {
     return getDb().prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
   },
@@ -171,7 +200,7 @@ export const todoDB = {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        SYSTEM_USER_ID,
+        input.userId ?? SYSTEM_USER_ID,
         input.title,
         input.priority ?? 'medium',
         input.due_date ?? null,
@@ -476,5 +505,69 @@ export const holidayDB = {
     return getDb()
       .prepare("SELECT * FROM holidays WHERE date LIKE ? AND country = 'SG'")
       .all(`${prefix}%`) as Holiday[];
+  },
+};
+
+// ─── User & Authenticator Types & DB ─────────────────────────────────────────
+
+export interface User {
+  id: number;
+  username: string;
+  created_at: string;
+}
+
+export interface Authenticator {
+  id: number;
+  user_id: number;
+  credential_id: string;
+  credential_public_key: Buffer;
+  counter: number;
+  transports: string | null;
+  created_at: string;
+}
+
+export const userDB = {
+  findByUsername(username: string): User | undefined {
+    return getDb().prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
+  },
+
+  findById(id: number): User | undefined {
+    return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
+  },
+
+  create(username: string): User {
+    const db = getDb();
+    const result = db.prepare('INSERT INTO users (username) VALUES (?)').run(username);
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as User;
+  },
+};
+
+export const authenticatorDB = {
+  findByCredentialId(credentialId: string): Authenticator | undefined {
+    return getDb()
+      .prepare('SELECT * FROM authenticators WHERE credential_id = ?')
+      .get(credentialId) as Authenticator | undefined;
+  },
+
+  findByUserId(userId: number): Authenticator[] {
+    return getDb()
+      .prepare('SELECT * FROM authenticators WHERE user_id = ?')
+      .all(userId) as Authenticator[];
+  },
+
+  create(data: {
+    userId: number;
+    credentialId: string;
+    credentialPublicKey: Buffer;
+    counter: number;
+    transports?: string;
+  }): void {
+    getDb().prepare(
+      'INSERT INTO authenticators (user_id, credential_id, credential_public_key, counter, transports) VALUES (?, ?, ?, ?, ?)'
+    ).run(data.userId, data.credentialId, data.credentialPublicKey, data.counter, data.transports ?? null);
+  },
+
+  updateCounter(credentialId: string, counter: number): void {
+    getDb().prepare('UPDATE authenticators SET counter = ? WHERE credential_id = ?').run(counter, credentialId);
   },
 };

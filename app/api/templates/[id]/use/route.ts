@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { templateDB, todoDB, subtaskDB, SYSTEM_USER_ID, TemplateSubtask } from '@/lib/db';
+import { getSession } from '@/lib/auth';
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const { id } = await params;
     const templateId = parseInt(id, 10);
     if (isNaN(templateId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     const template = templateDB.findById(templateId);
-    if (!template || template.user_id !== SYSTEM_USER_ID) {
+    if (!template || template.user_id !== session.userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
     const todo = todoDB.create({
+      userId: session.userId,
       title: template.title_template,
       priority: template.priority,
       due_date: null,

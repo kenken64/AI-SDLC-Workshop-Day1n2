@@ -436,6 +436,9 @@ function Section({
 export default function HomePage() {
   const router = useRouter();
 
+  // Auth
+  const [username, setUsername] = useState('');
+
   // Todos state
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -497,6 +500,7 @@ export default function HomePage() {
   const fetchTodos = useCallback(async () => {
     try {
       const res = await fetch('/api/todos');
+      if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch');
       setTodos(await res.json());
     } catch {
@@ -504,7 +508,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   const fetchTags = useCallback(async () => {
     try {
@@ -520,6 +524,13 @@ export default function HomePage() {
       if (!res.ok) return;
       setTemplates(await res.json());
     } catch { /* silent */ }
+  }, []);
+
+  // Fetch session username
+  useEffect(() => {
+    fetch('/api/auth/me').then(async res => {
+      if (res.ok) { const d = await res.json(); setUsername(d.username ?? ''); }
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { fetchTodos(); fetchTags(); fetchTemplates(); }, [fetchTodos, fetchTags, fetchTemplates]);
@@ -719,6 +730,12 @@ export default function HomePage() {
     if (!notifEnabled) await requestPermission();
   }
 
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  }
+
   // ── Template handlers ─────────────────────────────────────────────────────────
   async function handleSaveTemplate() {
     if (!templateName.trim()) return;
@@ -816,7 +833,10 @@ export default function HomePage() {
 
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">&#x1F4DD; My Todos</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">&#x1F4DD; My Todos</h1>
+            {username && <span className="text-sm text-gray-500 dark:text-gray-400">@{username}</span>}
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleEnableNotifications}
@@ -851,6 +871,12 @@ export default function HomePage() {
               className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
               &#x1F4C5; Calendar
+            </button>
+            <button
+              onClick={handleLogout}
+              className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Logout
             </button>
           </div>
         </div>

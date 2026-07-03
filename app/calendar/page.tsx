@@ -108,6 +108,10 @@ export default function CalendarPage() {
             <span data-testid="month-label" className="font-semibold text-gray-800 dark:text-gray-100 min-w-36 text-center">{monthName}</span>
             <button onClick={nextMonth} className="px-3 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600">▶</button>
             <button onClick={goToday} className="px-3 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm hover:bg-blue-200">Today</button>
+            <button
+              onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); }}
+              className="px-3 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-sm text-gray-700 dark:text-gray-200"
+            >Logout</button>
           </div>
         </div>
 

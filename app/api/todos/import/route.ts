@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { todoDB, subtaskDB, tagDB, SYSTEM_USER_ID } from '@/lib/db';
+import { getSession } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const body = await request.json();
     if (!Array.isArray(body)) {
       return NextResponse.json({ error: 'Invalid format: expected array' }, { status: 400 });
@@ -14,6 +18,7 @@ export async function POST(request: NextRequest) {
       if (!item.title || typeof item.title !== 'string') continue;
 
       const todo = todoDB.create({
+        userId: session.userId,
         title: item.title,
         priority: ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
         due_date: item.due_date ?? null,
@@ -36,9 +41,9 @@ export async function POST(request: NextRequest) {
         const tagIds: number[] = [];
         for (const tagData of item.tags) {
           if (!tagData.name) continue;
-          let tag = tagDB.findByUserAndName(SYSTEM_USER_ID, tagData.name);
+          let tag = tagDB.findByUserAndName(session.userId, tagData.name);
           if (!tag) {
-            tag = tagDB.create({ userId: SYSTEM_USER_ID, name: tagData.name, color: tagData.color ?? '#3B82F6' });
+            tag = tagDB.create({ userId: session.userId, name: tagData.name, color: tagData.color ?? '#3B82F6' });
           }
           tagIds.push(tag.id);
         }

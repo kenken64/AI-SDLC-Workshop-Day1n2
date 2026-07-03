@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { todoDB, subtaskDB, tagDB, Tag, Priority, RecurrencePattern } from '@/lib/db';
 import { getSingaporeNow } from '@/lib/timezone';
+import { getSession } from '@/lib/auth';
 
 const VALID_REMINDER_MINUTES = [15, 30, 60, 120, 1440, 2880, 10080];
 
 export async function GET() {
-  const todos = todoDB.findAll();
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+  const todos = todoDB.findByUserId(session.userId);
   const subtasks = subtaskDB.findAll();
   const tagMappings = tagDB.findWithTodoIds();
 
+  const todoIds = new Set(todos.map(t => t.id));
   const todoTagsMap: Record<number, Tag[]> = {};
   for (const row of tagMappings) {
+    if (!todoIds.has(row.todo_id)) continue;
     const { todo_id, ...tag } = row;
     if (!todoTagsMap[todo_id]) todoTagsMap[todo_id] = [];
     todoTagsMap[todo_id].push(tag as Tag);
@@ -27,6 +33,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const body = await request.json();
     const { title, priority, due_date, is_recurring, recurrence_pattern, reminder_minutes, tagIds } = body;
 
@@ -63,6 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const todo = todoDB.create({
+      userId: session.userId,
       title: title.trim(),
       priority: (priority as Priority) ?? 'medium',
       due_date: due_date ?? null,

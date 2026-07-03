@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { todoDB, subtaskDB, tagDB } from '@/lib/db';
 import { getSingaporeNow } from '@/lib/timezone';
+import { getSession } from '@/lib/auth';
 
 function getDateString(): string {
   return getSingaporeNow().toISOString().slice(0, 10);
@@ -22,8 +23,11 @@ function buildCSV(todos: ReturnType<typeof todoDB.findAll>): string {
 }
 
 export async function GET(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
   const format = new URL(request.url).searchParams.get('format') ?? 'json';
-  const todos = todoDB.findAll();
+  const todos = todoDB.findByUserId(session.userId);
 
   if (format === 'csv') {
     return new NextResponse(buildCSV(todos), {

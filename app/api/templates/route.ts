@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { templateDB, SYSTEM_USER_ID, Priority, RecurrencePattern } from '@/lib/db';
+import { getSession } from '@/lib/auth';
 
 export async function GET() {
-  return NextResponse.json(templateDB.findByUserId(SYSTEM_USER_ID));
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  return NextResponse.json(templateDB.findByUserId(session.userId));
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const body = await request.json();
     const { name, description, category, titleTemplate, priority, isRecurring, recurrencePattern, reminderMinutes } = body;
 
@@ -21,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     const template = templateDB.create({
-      userId: SYSTEM_USER_ID,
+      userId: session.userId,
       name: name.trim(),
       description: description?.trim() || undefined,
       category: category?.trim() || undefined,
