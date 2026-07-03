@@ -2,7 +2,7 @@
 
 > Last updated: 2026-07-03  
 > Branch: `zentilt-run-dev-server`  
-> Commit: `94c2ea2`
+> Commit: `64a7cd1`
 
 ---
 
@@ -16,7 +16,7 @@
 | PRP 04 | Reminders & Notifications | ✅ Done | 2026-07-03 |
 | PRP 05 | Subtasks & Progress | ✅ Done | 2026-07-03 |
 | PRP 06 | Tag System | ✅ Done | 2026-07-03 |
-| PRP 07 | Template System | ⬜ Not started | — |
+| [PRP 07](#prp-07--template-system) | Template System | ⬜ Not started | — |
 | PRP 08 | Search & Filtering | ⬜ Not started | — |
 | PRP 09 | Export / Import | ⬜ Not started | — |
 | PRP 10 | Calendar View | ⬜ Not started | — |
@@ -201,6 +201,209 @@ if (wasCompleted && isRecurring && pattern && existing.due_date):
 | Completing non-recurring todo does NOT create instance | ✅ |
 | Disabling recurrence in edit stops future instances | ✅ |
 | Invalid recurrence pattern returns 400 | ✅ |
+
+---
+
+## PRP 04 — Reminders & Notifications
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/04-reminders-notifications.md`](./04-reminders-notifications.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `last_notification_sent TEXT` column migration (safe to re-run)
+- [x] `Todo` interface updated with `last_notification_sent: string | null`
+- [x] `todoDB.findDueReminders(userId, now)` — finds todos where reminder time has passed and notification not yet sent
+- [x] `todoDB.markNotificationSent(id, sentAt)` — stamps `last_notification_sent`
+- [x] `todoDB.update()` resets `last_notification_sent = NULL` when `due_date` or `reminder_minutes` changes
+
+#### Reminder options
+```typescript
+const REMINDER_OPTIONS = [
+  { value: null,  label: 'None' },
+  { value: 15,    label: '15 minutes before' },
+  { value: 30,    label: '30 minutes before' },
+  { value: 60,    label: '1 hour before' },
+  { value: 120,   label: '2 hours before' },
+  { value: 1440,  label: '1 day before' },
+  { value: 2880,  label: '2 days before' },
+  { value: 10080, label: '1 week before' },
+];
+```
+
+#### API routes
+- [x] `GET /api/notifications/check` — finds due reminders, marks them sent, returns `{ id, title, due_date }[]`
+  - Completed todos excluded from results
+  - Server-side deduplication via `last_notification_sent` (prevents double-fire across tabs)
+  - Validates `reminder_minutes` against allowed values on POST
+
+#### Hook (`lib/hooks/useNotifications.ts`)
+- [x] `useNotifications()` — tracks `enabled` state (based on `Notification.permission`)
+- [x] `requestPermission()` — calls browser API and updates state
+
+#### UI (`app/page.tsx`)
+- [x] **🔔 Enable Notifications** button (orange) in header
+- [x] Toggles to **🔔 Notifications On** (green) after permission granted
+- [x] `useEffect` polling every 60 seconds when notifications enabled
+- [x] Fires `new Notification("⏰ title", { body: "Due at …" })` for each due reminder
+- [x] Reminder dropdown in **Add Todo** form — disabled when no due date set
+- [x] Reminder dropdown in **Edit Modal** — disabled when no due date set
+- [x] `data-testid="reminder-select"` on dropdown
+- [x] **🔔 badge** on todo items (e.g. `🔔 1h`, `🔔 1d`)
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Reminder dropdown disabled without due date | ✅ |
+| Reminder dropdown shows 8 options (None + 7 timings) | ✅ |
+| Selected reminder shows 🔔 badge with abbreviated time | ✅ |
+| Enable Notifications button requests browser permission | ✅ |
+| After permission granted, button shows Notifications On (green) | ✅ |
+| `/api/notifications/check` returns only todos where reminder time has passed | ✅ |
+| Notification not re-sent after `last_notification_sent` is set | ✅ |
+| Editing due date or reminder resets `last_notification_sent` | ✅ |
+| Completed todos excluded from notifications | ✅ |
+| Invalid reminder value returns 400 | ✅ |
+
+---
+
+## PRP 05 — Subtasks & Progress Tracking
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/05-subtasks-progress.md`](./05-subtasks-progress.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `subtasks` table created in `initSchema`:
+  ```sql
+  CREATE TABLE IF NOT EXISTS subtasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    todo_id INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  ```
+- [x] `Subtask` and `CreateSubtaskInput` interfaces exported
+- [x] `subtaskDB.findByTodoId(todoId)` — ordered by position, created_at
+- [x] `subtaskDB.findAll()` — all subtasks for bulk loading with todos
+- [x] `subtaskDB.create(input)` — auto-increments position
+- [x] `subtaskDB.update(id, completed)` — toggle completed state
+- [x] `subtaskDB.delete(id)` — returns boolean
+
+#### API routes
+- [x] `GET /api/todos/[id]/subtasks` — returns `Subtask[]`
+- [x] `POST /api/todos/[id]/subtasks` — validates title (required, max 500 chars); returns `201 Subtask`
+- [x] `PUT /api/todos/[id]/subtasks/[subtaskId]` — requires `completed: boolean`
+- [x] `DELETE /api/todos/[id]/subtasks/[subtaskId]` — returns `{ success: true }`
+- [x] `GET /api/todos` updated — returns todos with embedded `subtasks: Subtask[]`
+
+#### UI (`app/page.tsx`)
+- [x] `ProgressBar` component — `role="progressbar"`, `aria-valuenow`, shows `X/Y subtasks`
+- [x] **▶ Subtasks** / **▼ Subtasks** expand/collapse toggle per todo
+- [x] Expanded view shows subtask list with checkbox + ✕ delete button per row
+- [x] Add-subtask input at bottom of expanded list (Enter key submits)
+- [x] Toggle/add/delete calls API then refreshes all todos
+- [x] `TodoItem` now renders tags, progress bar, and subtasks section
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| ▶ Subtasks button visible on every todo | ✅ |
+| Clicking expands subtask list and add-subtask input | ✅ |
+| Adding subtask via Enter key works | ✅ |
+| Progress bar appears when at least one subtask exists | ✅ |
+| Progress bar shows correct percentage | ✅ |
+| `X/Y subtasks` text shows accurate count | ✅ |
+| Checking a subtask increments progress bar | ✅ |
+| Unchecking a subtask decrements progress bar | ✅ |
+| Deleting a subtask recalculates progress | ✅ |
+| Clicking ▼ Subtasks collapses the list | ✅ |
+| Parent todo deletion cascades to delete all subtasks | ✅ |
+
+---
+
+## PRP 06 — Tag System
+
+**Status:** ✅ Complete  
+**Spec file:** [`PRPs/06-tag-system.md`](./06-tag-system.md)
+
+### What was implemented
+
+#### Database (`lib/db.ts`)
+- [x] `tags` table (unique per user) and `todo_tags` junction table created in `initSchema`:
+  ```sql
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#3B82F6',
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+  );
+  CREATE TABLE IF NOT EXISTS todo_tags (
+    todo_id INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+    tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+    PRIMARY KEY (todo_id, tag_id)
+  );
+  ```
+- [x] `Tag`, `CreateTagInput`, `UpdateTagInput` interfaces exported
+- [x] `tagDB.findByUserId(userId)` — ordered by name
+- [x] `tagDB.findById(id)` — for ownership check
+- [x] `tagDB.create(input)` — with default color `#3B82F6`
+- [x] `tagDB.update(id, input)` — name and/or color
+- [x] `tagDB.delete(id)` — cascades via `todo_tags`
+- [x] `tagDB.setTodoTags(todoId, tagIds)` — transactional replace
+- [x] `tagDB.getTagsForTodo(todoId)` — for single todo response
+- [x] `tagDB.findWithTodoIds()` — JOIN for bulk loading with todos
+
+#### API routes
+- [x] `GET /api/tags` — returns `Tag[]` sorted by name
+- [x] `POST /api/tags` — validates name (required, max 50 chars), color (valid hex); returns `201 Tag`; `400` on duplicate
+- [x] `PUT /api/tags/[id]` — partial update name/color; `400` on duplicate name
+- [x] `DELETE /api/tags/[id]` — cascades to `todo_tags`
+- [x] `POST /api/todos` accepts `tagIds: number[]` — calls `tagDB.setTodoTags` after create
+- [x] `PUT /api/todos/[id]` accepts `tagIds: number[]` — calls `tagDB.setTodoTags` after update
+- [x] Recurring todo completion copies tags to new instance
+- [x] `GET /api/todos` updated — returns todos with embedded `tags: Tag[]`
+
+#### UI (`app/page.tsx`)
+- [x] `TagPill` component — colored rounded pill with white text
+- [x] `TagSelector` component — clickable pills with ✓ checkmark when selected
+- [x] **🏷️ Manage Tags** button in header → opens tag management modal
+- [x] Tag management modal:
+  - Lists all tags with color swatch, name, **Edit** / **Delete** actions
+  - Inline edit row with color picker + name input
+  - Create new tag form at the bottom (color picker + name input + **Create** button, Enter key submits)
+  - Error display for duplicate names or invalid hex
+- [x] Tag selector in **Add Todo** form
+- [x] Tag selector in **Edit Modal** (pre-selects existing tags)
+- [x] Tags displayed as colored pills on each todo item
+- [x] **Tag filter dropdown** (`data-testid="tag-filter"`) above todo list — AND logic with priority filter
+- [x] Filter clears automatically when the filtered tag is deleted
+
+### Acceptance criteria
+
+| Criterion | Status |
+|-----------|--------|
+| User can create a tag with name and color | ✅ |
+| Default tag color is `#3B82F6` (blue) | ✅ |
+| Tag names unique per user (duplicate rejected with 400) | ✅ |
+| Tags appear as colored pills on tagged todos | ✅ |
+| Multiple tags can be assigned to one todo | ✅ |
+| Tag selector shows ✓ checkmark on selected tags | ✅ |
+| Tags can be toggled on/off in create and edit forms | ✅ |
+| Tag management modal shows all tags with Edit/Delete | ✅ |
+| Editing a tag updates all todos using that tag | ✅ |
+| Deleting a tag removes it from all todos | ✅ |
+| Tag filter shows only todos with the selected tag | ✅ |
+| Tag filter combines with priority filter (AND logic) | ✅ |
+| Invalid color hex returns 400 | ✅ |
 
 ---
 
