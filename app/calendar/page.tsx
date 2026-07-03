@@ -14,6 +14,13 @@ interface Todo {
   recurrence_pattern: string | null;
 }
 
+interface Holiday {
+  id: number;
+  date: string;
+  name: string;
+  country: string;
+}
+
 const PRIORITY_BG: Record<string, string> = {
   high: 'bg-red-500',
   medium: 'bg-yellow-400',
@@ -31,6 +38,7 @@ function getFirstDayOfMonth(year: number, month: number) {
 export default function CalendarPage() {
   const router = useRouter();
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
 
   const today = new Date();
@@ -39,18 +47,27 @@ export default function CalendarPage() {
 
   useEffect(() => {
     fetch('/api/todos')
-      .then(async (res) => {
-        setTodos(await res.json());
-      })
+      .then(async (res) => { setTodos(await res.json()); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const todosWithDue = todos.filter(t => t.due_date && !t.completed);
+  useEffect(() => {
+    fetch(`/api/holidays?year=${year}&month=${month}`)
+      .then(async res => { if (res.ok) setHolidays(await res.json()); })
+      .catch(() => {});
+  }, [year, month]);
+
+  const todosWithDue = todos.filter(t => t.due_date);
 
   function getTodosForDay(day: number): Todo[] {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return todosWithDue.filter(t => t.due_date?.startsWith(dateStr));
+  }
+
+  function getHolidayForDay(day: number): Holiday | undefined {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.find(h => h.date === dateStr);
   }
 
   const daysInMonth = getDaysInMonth(year, month);
@@ -88,7 +105,7 @@ export default function CalendarPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={prevMonth} className="px-3 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600">◀</button>
-            <span className="font-semibold text-gray-800 dark:text-gray-100 min-w-36 text-center">{monthName}</span>
+            <span data-testid="month-label" className="font-semibold text-gray-800 dark:text-gray-100 min-w-36 text-center">{monthName}</span>
             <button onClick={nextMonth} className="px-3 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600">▶</button>
             <button onClick={goToday} className="px-3 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm hover:bg-blue-200">Today</button>
           </div>
@@ -113,6 +130,7 @@ export default function CalendarPage() {
             {/* Day cells */}
             {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
               const dayTodos = getTodosForDay(day);
+              const holiday = getHolidayForDay(day);
               const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
               const isPast = new Date(year, month, day) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -120,7 +138,9 @@ export default function CalendarPage() {
                 <div
                   key={day}
                   className={`min-h-20 p-1.5 border-t border-r border-gray-100 dark:border-gray-700 ${
-                    isToday ? 'bg-blue-50 dark:bg-blue-950/30' : isPast ? 'bg-gray-50/50 dark:bg-gray-900/10' : ''
+                    isToday ? 'bg-blue-50 dark:bg-blue-950/30' :
+                    holiday ? 'bg-amber-50 dark:bg-amber-950/20' :
+                    isPast ? 'bg-gray-50/50 dark:bg-gray-900/10' : ''
                   }`}
                 >
                   <div className={`text-xs font-semibold mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
@@ -128,11 +148,16 @@ export default function CalendarPage() {
                   }`}>
                     {day}
                   </div>
+                  {holiday && (
+                    <div className="text-xs text-amber-700 dark:text-amber-400 truncate mb-0.5" title={holiday.name}>
+                      &#x1F389; {holiday.name}
+                    </div>
+                  )}
                   <div className="space-y-0.5">
                     {dayTodos.slice(0, 3).map(todo => (
                       <div
                         key={todo.id}
-                        className={`text-xs text-white px-1 py-0.5 rounded truncate ${PRIORITY_BG[todo.priority]} ${isSingaporePast(todo.due_date) ? 'opacity-70' : ''}`}
+                        className={`text-xs text-white px-1 py-0.5 rounded truncate ${PRIORITY_BG[todo.priority]} ${todo.completed ? 'opacity-50 line-through' : ''} ${isSingaporePast(todo.due_date) && !todo.completed ? 'opacity-70' : ''}`}
                         title={todo.title}
                       >
                         {todo.title}

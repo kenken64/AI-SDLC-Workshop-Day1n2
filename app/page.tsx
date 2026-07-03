@@ -53,6 +53,45 @@ interface EditState {
   reminder_minutes: number | null;
 }
 
+interface Template {
+  id: number;
+  user_id: number;
+  name: string;
+  description: string | null;
+  category: string | null;
+  title_template: string;
+  priority: Priority;
+  is_recurring: number;
+  recurrence_pattern: RecurrencePattern | null;
+  reminder_minutes: number | null;
+  subtasks_json: string | null;
+  created_at: string;
+}
+
+interface FilterState {
+  search: string;
+  priority: Priority | 'all';
+  tagId: number | null;
+  completion: 'all' | 'incomplete' | 'completed';
+  dateFrom: string;
+  dateTo: string;
+}
+
+interface FilterPreset {
+  id: string;
+  name: string;
+  filters: FilterState;
+}
+
+const DEFAULT_FILTERS: FilterState = {
+  search: '',
+  priority: 'all',
+  tagId: null,
+  completion: 'all',
+  dateFrom: '',
+  dateTo: '',
+};
+
 const PRIORITY_COLORS: Record<Priority, string> = {
   high: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
@@ -83,6 +122,22 @@ const REMINDER_LABELS: Record<number, string> = {
 function getNowPlusMins(mins: number): string {
   const d = new Date(Date.now() + mins * 60000);
   return d.toISOString().slice(0, 16);
+}
+
+function applyFilters(todos: Todo[], f: FilterState): Todo[] {
+  return todos.filter(todo => {
+    if (f.search) {
+      const q = f.search.toLowerCase();
+      if (!todo.title.toLowerCase().includes(q) && !todo.subtasks.some(s => s.title.toLowerCase().includes(q))) return false;
+    }
+    if (f.priority !== 'all' && todo.priority !== f.priority) return false;
+    if (f.tagId !== null && !todo.tags.some(t => t.id === f.tagId)) return false;
+    if (f.completion === 'incomplete' && !!todo.completed) return false;
+    if (f.completion === 'completed' && !todo.completed) return false;
+    if (f.dateFrom && todo.due_date && todo.due_date.slice(0, 10) < f.dateFrom) return false;
+    if (f.dateTo && todo.due_date && todo.due_date.slice(0, 10) > f.dateTo) return false;
+    return true;
+  });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -395,8 +450,12 @@ export default function HomePage() {
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
 
-  // Filters
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
+  // Filters (unified)
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  const [presetName, setPresetName] = useState('');
 
   // Edit modal
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
@@ -411,7 +470,6 @@ export default function HomePage() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [newTagIds, setNewTagIds] = useState<number[]>([]);
   const [newReminderMinutes, setNewReminderMinutes] = useState<number | null>(null);
-  const [filterTag, setFilterTag] = useState<number | null>(null);
   const [showTagModal, setShowTagModal] = useState(false);
   const [editTagId, setEditTagId] = useState<number | null>(null);
   const [editTagName, setEditTagName] = useState('');
@@ -419,6 +477,18 @@ export default function HomePage() {
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#3B82F6');
   const [tagError, setTagError] = useState('');
+
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateDescription, setTemplateDescription] = useState('');
+  const [templateCategory, setTemplateCategory] = useState('');
+
+  // Import/Export
+  const [importSuccess, setImportSuccess] = useState('');
+  const [importError, setImportError] = useState('');
 
   // Notifications
   const { enabled: notifEnabled, requestPermission } = useNotifications();
@@ -444,7 +514,23 @@ export default function HomePage() {
     } catch { /* silent */ }
   }, []);
 
-  useEffect(() => { fetchTodos(); fetchTags(); }, [fetchTodos, fetchTags]);
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/templates');
+      if (!res.ok) return;
+      setTemplates(await res.json());
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { fetchTodos(); fetchTags(); fetchTemplates(); }, [fetchTodos, fetchTags, fetchTemplates]);
+
+  // Load filter presets from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('todo-filter-presets');
+      if (stored) setPresets(JSON.parse(stored));
+    } catch { /* silent */ }
+  }, []);
 
   // Notification polling
   useEffect(() => {
@@ -467,8 +553,8 @@ export default function HomePage() {
   }, [notifEnabled]);
 
   // ── Categorise todos ────────────────────────────────────────────────────────
-  let filteredTodos = filterPriority === 'all' ? todos : todos.filter(t => t.priority === filterPriority);
-  if (filterTag !== null) filteredTodos = filteredTodos.filter(t => t.tags.some(tag => tag.id === filterTag));
+  const filteredTodos = applyFilters(todos, filters);
+  const hasActiveFilters = filters.search !== '' || filters.priority !== 'all' || filters.tagId !== null || filters.completion !== 'all' || filters.dateFrom !== '' || filters.dateTo !== '';
   const overdue = filteredTodos.filter(t => !t.completed && t.due_date && isSingaporePast(t.due_date));
   const pending = filteredTodos.filter(t => !t.completed && !(t.due_date && isSingaporePast(t.due_date)));
   const completed = filteredTodos.filter(t => !!t.completed);
@@ -624,13 +710,93 @@ export default function HomePage() {
       const res = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
       if (!res.ok) return;
       setTags(prev => prev.filter(t => t.id !== id));
-      if (filterTag === id) setFilterTag(null);
+      if (filters.tagId === id) setFilters(f => ({ ...f, tagId: null }));
       fetchTodos();
     } catch { /* silent */ }
   }
 
   async function handleEnableNotifications() {
     if (!notifEnabled) await requestPermission();
+  }
+
+  // ── Template handlers ─────────────────────────────────────────────────────────
+  async function handleSaveTemplate() {
+    if (!templateName.trim()) return;
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: templateName.trim(),
+          description: templateDescription.trim() || null,
+          category: templateCategory.trim() || null,
+          titleTemplate: newTitle.trim(),
+          priority: newPriority,
+          isRecurring: newRecurring,
+          recurrencePattern: newRecurring ? newPattern : null,
+          reminderMinutes: newReminderMinutes,
+        }),
+      });
+      if (!res.ok) return;
+      const tmpl = await res.json();
+      setTemplates(prev => [...prev, tmpl].sort((a, b) => (a.category ?? '').localeCompare(b.category ?? '') || a.name.localeCompare(b.name)));
+      setSaveTemplateOpen(false);
+      setTemplateName(''); setTemplateDescription(''); setTemplateCategory('');
+    } catch { /* silent */ }
+  }
+
+  async function handleUseTemplate(id: number) {
+    try {
+      const res = await fetch(`/api/templates/${id}/use`, { method: 'POST' });
+      if (!res.ok) return;
+      await fetchTodos();
+    } catch { /* silent */ }
+  }
+
+  async function handleDeleteTemplate(id: number) {
+    try {
+      const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      setTemplates(prev => prev.filter(t => t.id !== id));
+    } catch { /* silent */ }
+  }
+
+  // ── Export / Import ───────────────────────────────────────────────────────────
+  function handleExportJSON() {
+    const a = document.createElement('a');
+    a.href = '/api/todos/export?format=json';
+    a.download = `todos-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+  }
+
+  function handleExportCSV() {
+    const a = document.createElement('a');
+    a.href = '/api/todos/export?format=csv';
+    a.download = `todos-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportSuccess(''); setImportError('');
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const res = await fetch('/api/todos/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error);
+      setImportSuccess(result.message);
+      await fetchTodos();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      e.target.value = '';
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -669,6 +835,18 @@ export default function HomePage() {
               &#x1F3F7;&#xFE0F; Manage Tags
             </button>
             <button
+              onClick={() => setShowTemplateModal(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              &#x1F4CB; Templates
+            </button>
+            <button onClick={handleExportJSON} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-2 py-1.5 rounded-lg transition-colors">Export JSON</button>
+            <button onClick={handleExportCSV} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium px-2 py-1.5 rounded-lg transition-colors">Export CSV</button>
+            <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-2 py-1.5 rounded-lg transition-colors cursor-pointer">
+              Import
+              <input type="file" accept=".json" className="hidden" onChange={handleImport} />
+            </label>
+            <button
               onClick={() => router.push('/calendar')}
               className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
@@ -682,10 +860,33 @@ export default function HomePage() {
             {error}
           </div>
         )}
+        {importSuccess && (
+          <div className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-4 py-2 rounded-lg text-sm">
+            {importSuccess}
+          </div>
+        )}
+        {importError && (
+          <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2 rounded-lg text-sm">
+            {importError}
+          </div>
+        )}
 
         {/* Add Todo Form */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 space-y-3">
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">Add Todo</h2>
+
+          {templates.length > 0 && (
+            <select
+              defaultValue=""
+              onChange={async e => { if (e.target.value) { await handleUseTemplate(Number(e.target.value)); e.target.value = ''; } }}
+              className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">&#x1F4CB; Use a template…</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.category ? `[${t.category}] ` : ''}{t.name}</option>
+              ))}
+            </select>
+          )}
 
           <input
             type="text"
@@ -775,22 +976,50 @@ export default function HomePage() {
 
           {addError && <p className="text-red-600 dark:text-red-400 text-xs">{addError}</p>}
 
-          <button
-            onClick={handleAdd}
-            disabled={adding}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg transition-colors text-sm"
-          >
-            {adding ? 'Adding…' : '+ Add'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAdd}
+              disabled={adding}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg transition-colors text-sm"
+            >
+              {adding ? 'Adding…' : '+ Add'}
+            </button>
+            {newTitle.trim() && (
+              <button
+                type="button"
+                onClick={() => setSaveTemplateOpen(true)}
+                className="text-sm text-purple-600 dark:text-purple-400 hover:underline whitespace-nowrap"
+              >
+                &#x1F4BE; Save as Template
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter:</label>
+        {/* Search */}
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">&#x1F50D;</span>
+          <input
+            type="text"
+            value={filters.search}
+            onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+            placeholder="Search todos and subtasks…"
+            className="w-full pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {filters.search && (
+            <button
+              onClick={() => setFilters(f => ({ ...f, search: '' }))}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >&#x2715;</button>
+          )}
+        </div>
+
+        {/* Quick Filters */}
+        <div className="flex flex-wrap gap-2 items-center">
           <select
             data-testid="priority-filter"
-            value={filterPriority}
-            onChange={e => setFilterPriority(e.target.value as Priority | 'all')}
+            value={filters.priority}
+            onChange={e => setFilters(f => ({ ...f, priority: e.target.value as Priority | 'all' }))}
             className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Priorities</option>
@@ -801,17 +1030,70 @@ export default function HomePage() {
           {tags.length > 0 && (
             <select
               data-testid="tag-filter"
-              value={filterTag ?? ''}
-              onChange={e => setFilterTag(e.target.value ? Number(e.target.value) : null)}
+              value={filters.tagId ?? ''}
+              onChange={e => setFilters(f => ({ ...f, tagId: e.target.value ? Number(e.target.value) : null }))}
               className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Tags</option>
-              {tags.map(tag => (
-                <option key={tag.id} value={tag.id}>{tag.name}</option>
-              ))}
+              {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
             </select>
           )}
+          <button
+            onClick={() => setAdvancedOpen(o => !o)}
+            className={`text-sm px-3 py-1.5 rounded-lg ${
+              advancedOpen ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {advancedOpen ? '\u25BC Advanced' : '\u25BA Advanced'}
+          </button>
+          {hasActiveFilters && (
+            <>
+              <button onClick={() => setFilters(DEFAULT_FILTERS)} className="text-sm text-red-600 dark:text-red-400 px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20">Clear All</button>
+              <button onClick={() => setSavePresetOpen(true)} className="text-sm text-green-600 dark:text-green-400 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20">&#x1F4BE; Save Filter</button>
+            </>
+          )}
         </div>
+
+        {/* Advanced Filters */}
+        {advancedOpen && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
+            <div className="flex flex-wrap gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Status</label>
+                <select
+                  value={filters.completion}
+                  onChange={e => setFilters(f => ({ ...f, completion: e.target.value as FilterState['completion'] }))}
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="all">All Todos</option>
+                  <option value="incomplete">Incomplete Only</option>
+                  <option value="completed">Completed Only</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Due Date From</label>
+                <input type="date" value={filters.dateFrom} onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value }))} className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Due Date To</label>
+                <input type="date" value={filters.dateTo} onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value }))} className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </div>
+            {presets.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Saved Presets</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {presets.map(p => (
+                    <div key={p.id} className="flex items-center gap-1">
+                      <button onClick={() => setFilters(p.filters)} className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-500">{p.name}</button>
+                      <button onClick={() => { const u = presets.filter(x => x.id !== p.id); setPresets(u); localStorage.setItem('todo-filter-presets', JSON.stringify(u)); }} className="text-gray-400 hover:text-red-500 text-xs">&#x2715;</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Todo Sections */}
         <Section title="Overdue" todos={overdue} onToggle={handleToggle} onEdit={openEdit} onDelete={handleDelete} onRefresh={fetchTodos} variant="overdue" testId="overdue-section" />
@@ -1019,6 +1301,97 @@ export default function HomePage() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Templates Modal */}
+      {showTemplateModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={e => { if (e.target === e.currentTarget) setShowTemplateModal(false); }}
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg space-y-4 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">📋 Templates</h2>
+            {templates.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">No templates yet. Fill in the form and click "💾 Save as Template".</p>
+            ) : (
+              <div className="space-y-3">
+                {templates.map(t => (
+                  <div key={t.id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-gray-900 dark:text-white text-sm">{t.name}</span>
+                        {t.category && <span className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-2 py-0.5 rounded-full">{t.category}</span>}
+                        <PriorityBadge priority={t.priority} />
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{t.title_template}</p>
+                      {t.description && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t.description}</p>}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={async () => { await handleUseTemplate(t.id); setShowTemplateModal(false); }}
+                        className="text-xs bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                      >Use</button>
+                      <button onClick={() => handleDeleteTemplate(t.id)} className="text-xs text-red-600 hover:underline">Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowTemplateModal(false)}
+              className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium py-2 rounded-lg transition-colors text-sm"
+            >Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Save as Template Modal */}
+      {saveTemplateOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-md space-y-4">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">💾 Save as Template</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Template Name *</label>
+              <input type="text" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="e.g., Weekly Review" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+              <input type="text" value={templateCategory} onChange={e => setTemplateCategory(e.target.value)} placeholder="e.g., Work, Personal" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+              <input type="text" value={templateDescription} onChange={e => setTemplateDescription(e.target.value)} placeholder="Optional description" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setSaveTemplateOpen(false); setTemplateName(''); setTemplateDescription(''); setTemplateCategory(''); }} className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium py-2 rounded-lg text-sm">Cancel</button>
+              <button onClick={handleSaveTemplate} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 rounded-lg text-sm">Save Template</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Filter Preset Modal */}
+      {savePresetOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">💾 Save Filter Preset</h2>
+            <input
+              type="text"
+              value={presetName}
+              onChange={e => setPresetName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && presetName.trim()) { const n: FilterPreset = { id: Date.now().toString(), name: presetName.trim(), filters }; const u = [...presets, n]; setPresets(u); localStorage.setItem('todo-filter-presets', JSON.stringify(u)); setSavePresetOpen(false); setPresetName(''); } }}
+              placeholder="Preset name…"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div className="flex gap-3">
+              <button onClick={() => { setSavePresetOpen(false); setPresetName(''); }} className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium py-2 rounded-lg text-sm">Cancel</button>
+              <button
+                onClick={() => { if (!presetName.trim()) return; const n: FilterPreset = { id: Date.now().toString(), name: presetName.trim(), filters }; const u = [...presets, n]; setPresets(u); localStorage.setItem('todo-filter-presets', JSON.stringify(u)); setSavePresetOpen(false); setPresetName(''); }}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-lg text-sm"
+              >Save</button>
+            </div>
           </div>
         </div>
       )}

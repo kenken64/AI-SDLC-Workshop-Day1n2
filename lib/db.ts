@@ -77,6 +77,28 @@ function initSchema(db: Database.Database): void {
       tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
       PRIMARY KEY (todo_id, tag_id)
     );
+
+    CREATE TABLE IF NOT EXISTS templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL DEFAULT 1,
+      name TEXT NOT NULL,
+      description TEXT,
+      category TEXT,
+      title_template TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'medium',
+      is_recurring INTEGER NOT NULL DEFAULT 0,
+      recurrence_pattern TEXT,
+      reminder_minutes INTEGER,
+      subtasks_json TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS holidays (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      country TEXT NOT NULL DEFAULT 'SG'
+    );
   `);
 }
 
@@ -350,6 +372,12 @@ export const tagDB = {
     `).all(todoId) as Tag[];
   },
 
+  findByUserAndName(userId: number, name: string): Tag | undefined {
+    return getDb()
+      .prepare('SELECT * FROM tags WHERE user_id = ? AND name = ?')
+      .get(userId, name) as Tag | undefined;
+  },
+
   findWithTodoIds(): (Tag & { todo_id: number })[] {
     return getDb().prepare(`
       SELECT tags.*, todo_tags.todo_id
@@ -357,5 +385,96 @@ export const tagDB = {
       JOIN todo_tags ON todo_tags.tag_id = tags.id
       ORDER BY tags.name
     `).all() as (Tag & { todo_id: number })[];
+  },
+};
+
+// ─── Template Types & DB ──────────────────────────────────────────────────────
+
+export interface Template {
+  id: number;
+  user_id: number;
+  name: string;
+  description: string | null;
+  category: string | null;
+  title_template: string;
+  priority: Priority;
+  is_recurring: number;
+  recurrence_pattern: RecurrencePattern | null;
+  reminder_minutes: number | null;
+  subtasks_json: string | null;
+  created_at: string;
+}
+
+export interface TemplateSubtask {
+  title: string;
+  position: number;
+}
+
+export interface CreateTemplateInput {
+  userId: number;
+  name: string;
+  description?: string;
+  category?: string;
+  titleTemplate: string;
+  priority: Priority;
+  isRecurring: boolean;
+  recurrencePattern?: RecurrencePattern | null;
+  reminderMinutes?: number | null;
+  subtasks?: TemplateSubtask[];
+}
+
+export const templateDB = {
+  findByUserId(userId: number): Template[] {
+    return getDb()
+      .prepare('SELECT * FROM templates WHERE user_id = ? ORDER BY category, name')
+      .all(userId) as Template[];
+  },
+
+  findById(id: number): Template | undefined {
+    return getDb().prepare('SELECT * FROM templates WHERE id = ?').get(id) as Template | undefined;
+  },
+
+  create(input: CreateTemplateInput): Template {
+    const db = getDb();
+    const result = db.prepare(`
+      INSERT INTO templates
+        (user_id, name, description, category, title_template, priority,
+         is_recurring, recurrence_pattern, reminder_minutes, subtasks_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.userId,
+      input.name,
+      input.description ?? null,
+      input.category ?? null,
+      input.titleTemplate,
+      input.priority,
+      input.isRecurring ? 1 : 0,
+      input.recurrencePattern ?? null,
+      input.reminderMinutes ?? null,
+      input.subtasks ? JSON.stringify(input.subtasks) : null
+    );
+    return db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid) as Template;
+  },
+
+  delete(id: number): boolean {
+    return getDb().prepare('DELETE FROM templates WHERE id = ?').run(id).changes > 0;
+  },
+};
+
+// ─── Holiday Types & DB ───────────────────────────────────────────────────────
+
+export interface Holiday {
+  id: number;
+  date: string;
+  name: string;
+  country: string;
+}
+
+export const holidayDB = {
+  findByMonth(year: number, month: number): Holiday[] {
+    const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+    return getDb()
+      .prepare("SELECT * FROM holidays WHERE date LIKE ? AND country = 'SG'")
+      .all(`${prefix}%`) as Holiday[];
   },
 };
