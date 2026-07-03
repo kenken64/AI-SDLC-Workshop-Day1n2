@@ -1,0 +1,20 @@
+# env
+.env.local
+.env*.local
+
+# next.js
+/.next/
+/out/
+
+# node_modules
+node_modules/
+
+# database
+todos.db
+todos.db-journal
+todos.db-wal
+todos.db-shm
+
+# misc
+.DS_Store
+*.pem
