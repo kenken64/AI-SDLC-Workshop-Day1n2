@@ -2,6 +2,10 @@
 
 This directory contains detailed Product Requirement Prompts split by feature for the Todo App. Each PRP provides comprehensive guidance for implementing a specific feature using AI coding assistants.
 
+## ⚡ One-Shot Implementation
+
+**[00-one-shot-implementation.md](00-one-shot-implementation.md)** condenses all 11 PRPs below into a single, dense build spec (schema, types, API surface, and per-feature bullets) intended to implement the whole app in one pass with minimal token usage — including a model-routing table (fast model for repetitive CRUD/UI, Sonnet 5 for security- and correctness-critical work). Use the per-feature PRPs below when you need full rationale, UI code examples, or exhaustive edge cases instead.
+
 ## 📋 PRP Files
 
 ### Core Features
