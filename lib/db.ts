@@ -376,6 +376,88 @@ export const todoDB = {
   delete(id: number, userId: number): void {
     db.prepare('DELETE FROM todos WHERE id = ? AND user_id = ?').run(id, userId);
   },
+
+  findAllWithRelations(userId: number): (Todo & { subtasks: Subtask[]; tags: Tag[] })[] {
+    return todoDB.findByUserId(userId).map((todo) => ({
+      ...todo,
+      subtasks: subtaskDB.findByTodoId(todo.id),
+      tags: tagDB.findByTodoId(todo.id),
+    }));
+  },
+
+  importAll(
+    userId: number,
+    items: Array<{
+      title: string;
+      completed: boolean;
+      due_date: string | null;
+      priority: Priority;
+      is_recurring: boolean;
+      recurrence_pattern: RecurrencePattern | null;
+      reminder_minutes: number | null;
+      created_at: string;
+      subtasks: Array<{ title: string; completed: boolean; position: number }>;
+      tags: Array<{ name: string; color: string }>;
+    }>,
+  ): { imported: number; tagsCreated: number; tagsReused: number } {
+    let tagsCreated = 0;
+    let tagsReused = 0;
+
+    const insertTodo = db.prepare(
+      `INSERT INTO todos
+         (user_id, title, completed, due_date, priority, is_recurring,
+          recurrence_pattern, reminder_minutes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    );
+    const insertSubtask = db.prepare(
+      'INSERT INTO subtasks (todo_id, title, completed, position) VALUES (?, ?, ?, ?)',
+    );
+    const findTagByName = db.prepare(
+      'SELECT id FROM tags WHERE user_id = ? AND lower(name) = lower(?)',
+    );
+    const insertTag = db.prepare(
+      'INSERT INTO tags (user_id, name, color) VALUES (?, ?, ?) RETURNING id',
+    );
+    const linkTodoTag = db.prepare(
+      'INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)',
+    );
+
+    const run = db.transaction(() => {
+      for (const item of items) {
+        const row = insertTodo.get(
+          userId,
+          item.title,
+          item.completed ? 1 : 0,
+          item.due_date ?? null,
+          item.priority,
+          item.is_recurring ? 1 : 0,
+          item.recurrence_pattern ?? null,
+          item.reminder_minutes ?? null,
+          item.created_at,
+        ) as { id: number };
+        const todoId = row.id;
+
+        item.subtasks.forEach((s, i) => {
+          insertSubtask.run(todoId, s.title, s.completed ? 1 : 0, s.position ?? i);
+        });
+
+        for (const tag of item.tags) {
+          const existing = findTagByName.get(userId, tag.name) as { id: number } | undefined;
+          if (existing) {
+            tagsReused++;
+            linkTodoTag.run(todoId, existing.id);
+          } else {
+            tagsCreated++;
+            const newTag = insertTag.get(userId, tag.name, tag.color) as { id: number };
+            linkTodoTag.run(todoId, newTag.id);
+          }
+        }
+      }
+    });
+
+    run();
+    return { imported: items.length, tagsCreated, tagsReused };
+  },
 };
 
 // ─── subtaskDB ───────────────────────────────────────────────────────────────

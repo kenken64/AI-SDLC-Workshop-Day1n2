@@ -126,19 +126,35 @@ export async function createTag(page: Page, name: string, color?: string): Promi
   await page.getByRole('button', { name: /manage tags/i }).click();
   await page.getByPlaceholder('Tag name').fill(name);
   if (color) {
-    // Set color via the color input
     await page.locator('input[type="color"]').last().fill(color);
   }
-  await page.getByRole('button', { name: 'Create' }).click();
-  // Wait for the tag to appear in the list
+  await page.getByRole('button', { name: /^create$/i }).click();
   await expect(page.getByText(name)).toBeVisible();
+  // Close the modal
+  await page.getByRole('button', { name: /^close$/i }).click();
 }
 
-// ─── Template helper (Person E fills in the body) ───────────────────────────
+// ─── Template helpers (Person E) ─────────────────────────────────────────────
+
+export interface CreateTemplateOptions {
+  name: string;
+  description?: string;
+  category?: string;
+  titleTemplate?: string; // defaults to the todo title already in the form
+}
 
 /**
- * TODO (Person E): implement once template UI is in place.
+ * With a todo already filled in the creation form, clicks "Save as Template",
+ * fills in the modal and saves it.
  */
-export async function createTemplate(_page: Page, _opts: { name: string; title: string }): Promise<void> {
-  throw new Error('createTemplate() not yet implemented — Person E will add this');
+export async function createTemplate(page: Page, opts: CreateTemplateOptions): Promise<void> {
+  await page.getByRole('button', { name: /save as template/i }).click();
+
+  await page.getByPlaceholder('e.g. Weekly Team Meeting').fill(opts.name);
+  if (opts.description) await page.getByPlaceholder('Optional description').fill(opts.description);
+  if (opts.category) await page.getByPlaceholder('e.g. Work, Personal').fill(opts.category);
+
+  await page.getByRole('button', { name: /^save template$/i }).click();
+  // Wait for modal to close
+  await expect(page.getByPlaceholder('e.g. Weekly Team Meeting')).not.toBeVisible();
 }

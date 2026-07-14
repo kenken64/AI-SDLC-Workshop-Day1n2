@@ -1,7 +1,8 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import type { Priority, RecurrencePattern, ReminderMinutes, Subtask, Tag, Todo } from '@/lib/db';
+import Link from 'next/link';
+import type { Priority, RecurrencePattern, ReminderMinutes, Subtask, Tag, Template, Todo } from '@/lib/db';
 import {
   PRIORITY_LABELS,
   REMINDER_LABELS,
@@ -28,6 +29,15 @@ import {
 type PriorityFilter = Priority | 'all';
 
 type TagDraft = { name: string; color: string };
+
+type TemplateDraft = {
+  name: string;
+  description: string;
+  category: string;
+  subtasks: string[]; // titles of subtasks to capture
+};
+
+const EMPTY_TEMPLATE_DRAFT: TemplateDraft = { name: '', description: '', category: '', subtasks: [] };
 
 type TodoDraft = {
   title: string;
@@ -421,6 +431,19 @@ export default function HomePage() {
   const [showSavePresetModal, setShowSavePresetModal] = useState(false);
   const [presetName, setPresetName] = useState('');
 
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState<TemplateDraft>(EMPTY_TEMPLATE_DRAFT);
+  const [templateDraftError, setTemplateDraftError] = useState<string | null>(null);
+  const [templateSaving, setTemplateSaving] = useState(false);
+
+  // Export / import
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [importing, setImporting] = useState(false);
+
   const debouncedSearch = useDebounce(filters.search, 300);
   const effectiveFilters: FilterState = { ...filters, search: debouncedSearch };
 
@@ -439,6 +462,14 @@ export default function HomePage() {
     }
   }, []);
 
+  const loadTemplates = useCallback(async () => {
+    const res = await fetch('/api/templates');
+    if (res.ok) {
+      const data = await res.json() as Template[];
+      setTemplates(data);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -446,7 +477,7 @@ export default function HomePage() {
       setLoading(true);
       setError(null);
 
-      const [todosRes] = await Promise.all([fetch('/api/todos'), loadTags()]);
+      const [todosRes] = await Promise.all([fetch('/api/todos'), loadTags(), loadTemplates()]);
       if (!active) return;
 
       if (!todosRes.ok) {
@@ -465,7 +496,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [loadTags]);
+  }, [loadTags, loadTemplates]);
 
   const visibleTodos = applyFilters(todos, effectiveFilters);
   const sections = sectionTodos(visibleTodos, new Date());
@@ -523,8 +554,97 @@ export default function HomePage() {
     if (filters.tagId === tag.id) setFilters((f) => ({ ...f, tagId: 'all' }));
   }
 
-  // ── Subtask management ───────────────────────────────────────────────────
+  // ── Template management ──────────────────────────────────────────────────
 
+  async function handleSaveTemplate(e: FormEvent) {
+    e.preventDefault();
+    setTemplateDraftError(null);
+    const name = templateDraft.name.trim();
+    if (!name) { setTemplateDraftError('Template name is required.'); return; }
+    if (!draft.title.trim()) { setTemplateDraftError('Todo title is required.'); return; }
+    setTemplateSaving(true);
+    const res = await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        description: templateDraft.description || undefined,
+        category: templateDraft.category || undefined,
+        title_template: draft.title.trim(),
+        priority: draft.priority,
+        is_recurring: draft.isRecurring,
+        recurrence_pattern: draft.isRecurring ? draft.recurrencePattern : undefined,
+        reminder_minutes: draft.reminderMinutes ?? undefined,
+        subtasks: templateDraft.subtasks.filter((t) => t.trim()).map((t, i) => ({ title: t.trim(), position: i })),
+      }),
+    });
+    setTemplateSaving(false);
+    if (!res.ok) {
+      const payload = await res.json() as { error?: string };
+      setTemplateDraftError(payload.error ?? 'Failed to save template.');
+      return;
+    }
+    const saved = await res.json() as Template;
+    setTemplates((prev) => [saved, ...prev]);
+    setShowSaveTemplateModal(false);
+    setTemplateDraft(EMPTY_TEMPLATE_DRAFT);
+  }
+
+  async function handleUseTemplate(templateId: number) {
+    const res = await fetch(`/api/templates/${templateId}/use`, { method: 'POST' });
+    if (!res.ok) return;
+    const created = await res.json() as Todo;
+    setTodos((prev) => [...prev, created]);
+    setShowTemplateManager(false);
+  }
+
+  async function handleDeleteTemplate(templateId: number) {
+    if (!confirm('Delete this template? Todos created from it are not affected.')) return;
+    await fetch(`/api/templates/${templateId}`, { method: 'DELETE' });
+    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+  }
+
+  // ── Export / Import ──────────────────────────────────────────────────────
+
+  function handleExport(format: 'json' | 'csv') {
+    window.location.href = `/api/todos/export?format=${format}`;
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMessage(null);
+    try {
+      const text = await file.text();
+      let body: unknown;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        setImportMessage({ type: 'error', text: 'Invalid JSON format' });
+        return;
+      }
+      const res = await fetch('/api/todos/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json() as { imported?: number; error?: string };
+      if (!res.ok) {
+        setImportMessage({ type: 'error', text: data.error ?? 'Failed to import todos' });
+        return;
+      }
+      setImportMessage({ type: 'success', text: `Successfully imported ${data.imported ?? 0} todos` });
+      // Reload todos after import
+      const todosRes = await fetch('/api/todos');
+      if (todosRes.ok) setTodos(await todosRes.json() as Todo[]);
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  }
+
+  // ── Subtask management ───────────────────────────────────────────────────
   async function handleAddSubtask(todoId: number, title: string): Promise<void> {
     const res = await fetch(`/api/todos/${todoId}/subtasks`, {
       method: 'POST',
@@ -804,7 +924,20 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link
+                href="/calendar"
+                className="rounded-xl border border-purple-300 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 transition hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-950/60"
+              >
+                📅 Calendar
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowTemplateManager(true)}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                📋 Templates
+              </button>
               <button
                 type="button"
                 onClick={() => setShowTagModal(true)}
@@ -812,6 +945,36 @@ export default function HomePage() {
               >
                 🏷️ Manage Tags
               </button>
+              {/* Export / Import */}
+              <button
+                type="button"
+                onClick={() => handleExport('json')}
+                className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+              >
+                ↓ JSON
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport('csv')}
+                className="rounded-xl border border-teal-300 bg-teal-50 px-4 py-2 text-sm font-medium text-teal-700 transition hover:bg-teal-100 dark:border-teal-700 dark:bg-teal-950/40 dark:text-teal-300"
+              >
+                ↓ CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => importFileRef.current?.click()}
+                disabled={importing}
+                className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+              >
+                {importing ? 'Importing…' : '↑ Import'}
+              </button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => void handleImportFile(e)}
+              />
               <button
                 type="button"
                 onClick={() => void requestPermission()}
@@ -833,6 +996,18 @@ export default function HomePage() {
           {error && (
             <p role="alert" className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
               {error}
+            </p>
+          )}
+          {importMessage && (
+            <p
+              role="alert"
+              className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                importMessage.type === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300'
+              }`}
+            >
+              {importMessage.text}
             </p>
           )}
         </header>
@@ -968,13 +1143,47 @@ export default function HomePage() {
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400"
-            >
-              {saving ? 'Adding…' : 'Add Todo'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400"
+              >
+                {saving ? 'Adding…' : 'Add Todo'}
+              </button>
+              {draft.title.trim() && (
+                <button
+                  type="button"
+                  onClick={() => { setTemplateDraft(EMPTY_TEMPLATE_DRAFT); setTemplateDraftError(null); setShowSaveTemplateModal(true); }}
+                  className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  💾 Save as Template
+                </button>
+              )}
+            </div>
+
+            {templates.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Use Template</label>
+                <select
+                  defaultValue=""
+                  onChange={async (e) => {
+                    const id = Number(e.target.value);
+                    if (!id) return;
+                    e.target.value = '';
+                    await handleUseTemplate(id);
+                  }}
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
+                >
+                  <option value="">Pick a template…</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}{t.category ? ` (${t.category})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </form>
 
           <div className="space-y-3 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/70">
@@ -1532,6 +1741,231 @@ export default function HomePage() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Save Template Modal ───────────────────────────────────────────── */}
+      {showSaveTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400">Templates</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Save as Template</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Capturing: &ldquo;<strong>{draft.title}</strong>&rdquo; · {draft.priority} priority
+                  {draft.isRecurring && ` · repeats ${draft.recurrencePattern}`}
+                  {draft.reminderMinutes && ` · reminder ${draft.reminderMinutes}m before`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveTemplateModal(false)}
+                className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {templateDraftError && (
+              <p className="mb-3 text-sm text-red-600 dark:text-red-400">{templateDraftError}</p>
+            )}
+
+            <form onSubmit={(e) => void handleSaveTemplate(e)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+                  Template name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  value={templateDraft.name}
+                  onChange={(e) => setTemplateDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="e.g. Weekly Team Meeting"
+                  autoFocus
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Description</label>
+                  <input
+                    value={templateDraft.description}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...d, description: e.target.value }))}
+                    placeholder="Optional description"
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Category</label>
+                  <input
+                    value={templateDraft.category}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...d, category: e.target.value }))}
+                    placeholder="e.g. Work, Personal"
+                    list="template-category-suggestions"
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  />
+                  <datalist id="template-category-suggestions">
+                    <option value="Work" />
+                    <option value="Personal" />
+                    <option value="Finance" />
+                    <option value="Health" />
+                    <option value="Education" />
+                  </datalist>
+                </div>
+              </div>
+
+              {/* Inline subtask capture */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+                  Subtasks to include (optional)
+                </label>
+                {templateDraft.subtasks.map((st, idx) => (
+                  <div key={idx} className="mb-1.5 flex gap-2">
+                    <input
+                      value={st}
+                      onChange={(e) => setTemplateDraft((d) => ({
+                        ...d,
+                        subtasks: d.subtasks.map((s, i) => i === idx ? e.target.value : s),
+                      }))}
+                      placeholder={`Subtask ${idx + 1}`}
+                      className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setTemplateDraft((d) => ({
+                        ...d,
+                        subtasks: d.subtasks.filter((_, i) => i !== idx),
+                      }))}
+                      className="text-slate-400 hover:text-red-500"
+                    >✕</button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTemplateDraft((d) => ({ ...d, subtasks: [...d.subtasks, ''] }))}
+                  className="mt-1 rounded-xl border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400"
+                >
+                  + Add subtask
+                </button>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplateModal(false)}
+                  className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={templateSaving || !templateDraft.name.trim()}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400"
+                >
+                  {templateSaving ? 'Saving…' : 'Save Template'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Template Manager Modal ────────────────────────────────────────── */}
+      {showTemplateManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400">Templates</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Template Manager</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTemplateManager(false)}
+                className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                Close
+              </button>
+            </div>
+
+            {templates.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                No templates yet. Create a todo and click &ldquo;💾 Save as Template&rdquo;.
+              </p>
+            ) : (
+              <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+                {templates.map((t) => {
+                  let parsedSubtasks: Array<{ title: string }> = [];
+                  if (t.subtasks_json) {
+                    try { parsedSubtasks = JSON.parse(t.subtasks_json) as Array<{ title: string }>; } catch { /* ignore */ }
+                  }
+                  return (
+                    <div key={t.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t.name}</strong>
+                            {t.category && (
+                              <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                {t.category}
+                              </span>
+                            )}
+                          </div>
+                          {t.description && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{t.description}</p>
+                          )}
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Title: &ldquo;{t.title_template}&rdquo;
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                              t.priority === 'high'
+                                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300'
+                                : t.priority === 'low'
+                                  ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300'
+                                  : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300'
+                            }`}>
+                              {t.priority}
+                            </span>
+                            {t.is_recurring && t.recurrence_pattern && (
+                              <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-200">
+                                🔄 {t.recurrence_pattern}
+                              </span>
+                            )}
+                            {t.reminder_minutes != null && (
+                              <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-200">
+                                🔔 {t.reminder_minutes}m
+                              </span>
+                            )}
+                            {parsedSubtasks.length > 0 && (
+                              <span className="text-xs text-slate-400 dark:text-slate-500">
+                                {parsedSubtasks.length} subtask{parsedSubtasks.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void handleUseTemplate(t.id)}
+                            className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                          >
+                            Use
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteTemplate(t.id)}
+                            className="rounded-xl border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/30"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
