@@ -85,6 +85,15 @@ export async function createTodo(page: Page, opts: CreateTodoOptions): Promise<v
     await page.getByLabel('Due date and time').fill(`${opts.dueDate}T09:00`);
   }
 
+  if (opts.recurring && opts.dueDate) {
+    await page.getByRole('checkbox', { name: /repeat/i }).check();
+    await page.locator('select').filter({ hasText: /Daily|Weekly|Monthly|Yearly/ }).selectOption(opts.recurring);
+  }
+
+  if (opts.reminder && opts.dueDate) {
+    await page.getByLabel('Reminder').selectOption(String(opts.reminder));
+  }
+
   await page.getByRole('button', { name: 'Add Todo' }).click();
 }
 
