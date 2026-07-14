@@ -100,17 +100,38 @@ export async function createTodo(page: Page, opts: CreateTodoOptions): Promise<v
 // ─── Subtask / Tag helpers (Person D fills in the body) ──────────────────────
 
 /**
- * TODO (Person D): implement once subtask UI is in place.
+ * Expands a todo's subtask section and adds a subtask with the given title.
+ * Assumes the todo is visible on the page.
  */
-export async function addSubtask(_page: Page, _todoTitle: string, _subtaskTitle: string): Promise<void> {
-  throw new Error('addSubtask() not yet implemented — Person D will add this');
+export async function addSubtask(page: Page, todoTitle: string, subtaskTitle: string): Promise<void> {
+  // Find the todo card that contains the title
+  const card = page.locator('article').filter({ hasText: todoTitle }).first();
+  // Expand subtasks
+  const subtaskBtn = card.getByRole('button', { name: /subtasks/i });
+  if (await subtaskBtn.isVisible()) {
+    const isExpanded = (await subtaskBtn.textContent())?.includes('▼');
+    if (!isExpanded) await subtaskBtn.click();
+  }
+  // Add subtask
+  await card.getByPlaceholder('Add subtask…').fill(subtaskTitle);
+  await card.getByRole('button', { name: 'Add' }).click();
+  // Wait for the subtask to appear
+  await expect(card.getByText(subtaskTitle)).toBeVisible();
 }
 
 /**
- * TODO (Person D): implement once tag UI is in place.
+ * Opens the Manage Tags modal and creates a tag with the given name and color.
  */
-export async function createTag(_page: Page, _name: string, _color?: string): Promise<void> {
-  throw new Error('createTag() not yet implemented — Person D will add this');
+export async function createTag(page: Page, name: string, color?: string): Promise<void> {
+  await page.getByRole('button', { name: /manage tags/i }).click();
+  await page.getByPlaceholder('Tag name').fill(name);
+  if (color) {
+    // Set color via the color input
+    await page.locator('input[type="color"]').last().fill(color);
+  }
+  await page.getByRole('button', { name: 'Create' }).click();
+  // Wait for the tag to appear in the list
+  await expect(page.getByText(name)).toBeVisible();
 }
 
 // ─── Template helper (Person E fills in the body) ───────────────────────────

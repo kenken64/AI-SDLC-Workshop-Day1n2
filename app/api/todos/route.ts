@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { todoDB } from '@/lib/db';
+import { todoDB, subtaskDB, tagDB } from '@/lib/db';
 import { normalizeSingaporeDateInput, parseSingaporeDateTime, validatePriority } from '@/lib/todo-utils';
 
 export async function GET() {
@@ -9,7 +9,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  return NextResponse.json(todoDB.findByUserId(session.userId));
+  const todos = todoDB.findByUserId(session.userId).map((todo) => ({
+    ...todo,
+    subtasks: subtaskDB.findByTodoId(todo.id),
+    tags: tagDB.findByTodoId(todo.id),
+  }));
+
+  return NextResponse.json(todos);
 }
 
 export async function POST(request: NextRequest) {
