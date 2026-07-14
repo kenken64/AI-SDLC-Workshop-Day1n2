@@ -1,9 +1,10 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import type { Priority, Todo } from '@/lib/db';
+import type { Priority, RecurrencePattern, ReminderMinutes, Todo } from '@/lib/db';
 import {
   PRIORITY_LABELS,
+  REMINDER_LABELS,
   formatForDateTimeLocal,
   formatSingaporeLocal,
   parseSingaporeDateTime,
@@ -11,6 +12,7 @@ import {
   sortTodos,
   validatePriority,
 } from '@/lib/todo-utils';
+import { useNotifications } from '@/lib/hooks/useNotifications';
 
 type PriorityFilter = Priority | 'all';
 
@@ -18,6 +20,9 @@ type TodoDraft = {
   title: string;
   priority: Priority;
   dueDate: string;
+  isRecurring: boolean;
+  recurrencePattern: RecurrencePattern;
+  reminderMinutes: ReminderMinutes | null;
 };
 
 type EditDraft = {
@@ -25,12 +30,18 @@ type EditDraft = {
   priority: Priority;
   dueDate: string;
   completed: boolean;
+  isRecurring: boolean;
+  recurrencePattern: RecurrencePattern;
+  reminderMinutes: ReminderMinutes | null;
 };
 
 const EMPTY_DRAFT: TodoDraft = {
   title: '',
   priority: 'medium',
   dueDate: '',
+  isRecurring: false,
+  recurrencePattern: 'weekly',
+  reminderMinutes: null,
 };
 
 const PRIORITY_FILTER_OPTIONS: Array<{ value: PriorityFilter; label: string }> = [
@@ -80,9 +91,9 @@ function makeOptimisticTodo(draft: TodoDraft): Todo {
     completed: false,
     due_date: parseFormDate(draft.dueDate),
     priority: draft.priority,
-    is_recurring: false,
-    recurrence_pattern: null,
-    reminder_minutes: null,
+    is_recurring: draft.isRecurring,
+    recurrence_pattern: draft.isRecurring ? draft.recurrencePattern : null,
+    reminder_minutes: draft.reminderMinutes,
     last_notification_sent: null,
     created_at: formatSingaporeLocal(new Date()),
     updated_at: null,
@@ -93,6 +104,23 @@ function TodoBadge({ priority }: { priority: Priority }) {
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${PRIORITY_BADGE_STYLES[priority]}`}>
       {PRIORITY_LABELS[priority]}
+    </span>
+  );
+}
+
+function RecurrenceBadge({ pattern }: { pattern: RecurrencePattern }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-purple-300 bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800 dark:border-purple-700 dark:bg-purple-900/40 dark:text-purple-200">
+      🔄 {pattern}
+    </span>
+  );
+}
+
+function ReminderBadge({ minutes }: { minutes: number }) {
+  const label = REMINDER_LABELS[minutes as ReminderMinutes] ?? `${minutes}m`;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-200">
+      🔔 {label}
     </span>
   );
 }
@@ -149,6 +177,12 @@ function SectionCard({
                         {todo.title}
                       </h3>
                       <TodoBadge priority={todo.priority} />
+                      {todo.is_recurring && todo.recurrence_pattern && (
+                        <RecurrenceBadge pattern={todo.recurrence_pattern} />
+                      )}
+                      {todo.reminder_minutes !== null && todo.reminder_minutes !== undefined && (
+                        <ReminderBadge minutes={todo.reminder_minutes} />
+                      )}
                     </div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{formatCardDate(todo.due_date)}</p>
                   </div>
@@ -190,6 +224,8 @@ export default function HomePage() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  const { permission: notificationPermission, requestPermission } = useNotifications();
 
   useEffect(() => {
     let active = true;
@@ -249,6 +285,9 @@ export default function HomePage() {
           title,
           priority: draft.priority,
           due_date: parseFormDate(draft.dueDate),
+          is_recurring: draft.isRecurring,
+          recurrence_pattern: draft.isRecurring ? draft.recurrencePattern : null,
+          reminder_minutes: draft.reminderMinutes,
         }),
       });
 
@@ -275,6 +314,9 @@ export default function HomePage() {
       priority: todo.priority,
       dueDate: formatForDateTimeLocal(todo.due_date),
       completed: todo.completed,
+      isRecurring: todo.is_recurring,
+      recurrencePattern: todo.recurrence_pattern ?? 'weekly',
+      reminderMinutes: (todo.reminder_minutes as ReminderMinutes | null) ?? null,
     });
     setEditError(null);
   }
@@ -301,6 +343,9 @@ export default function HomePage() {
       priority: editDraft.priority,
       due_date: parseFormDate(editDraft.dueDate),
       completed: editDraft.completed,
+      is_recurring: editDraft.isRecurring,
+      recurrence_pattern: editDraft.isRecurring ? editDraft.recurrencePattern : null,
+      reminder_minutes: editDraft.reminderMinutes,
       updated_at: formatSingaporeLocal(new Date()),
     };
 
@@ -318,15 +363,19 @@ export default function HomePage() {
           priority: editDraft.priority,
           due_date: parseFormDate(editDraft.dueDate),
           completed: editDraft.completed,
+          is_recurring: editDraft.isRecurring,
+          recurrence_pattern: editDraft.isRecurring ? editDraft.recurrencePattern : null,
+          reminder_minutes: editDraft.reminderMinutes,
         }),
       });
 
-      const payload = await response.json().catch(() => null) as Todo | { error?: string } | null;
+      const payload = await response.json().catch(() => null) as { todo: Todo; nextInstance?: Todo } | { error?: string } | null;
       if (!response.ok || !payload || typeof (payload as { error?: string }).error === 'string') {
         throw new Error((payload as { error?: string } | null)?.error ?? 'Unable to update todo.');
       }
 
-      setTodos((current) => sortTodos(updateTodoList(current, payload as Todo)));
+      const { todo: updatedTodo } = payload as { todo: Todo };
+      setTodos((current) => sortTodos(updateTodoList(current, updatedTodo)));
       closeEdit();
     } catch (mutationError) {
       setTodos(snapshot);
@@ -353,12 +402,19 @@ export default function HomePage() {
         body: JSON.stringify({ completed: !todo.completed }),
       });
 
-      const payload = await response.json().catch(() => null) as Todo | { error?: string } | null;
+      const payload = await response.json().catch(() => null) as
+        | { todo: Todo; nextInstance?: Todo }
+        | { error?: string }
+        | null;
       if (!response.ok || !payload || typeof (payload as { error?: string }).error === 'string') {
         throw new Error((payload as { error?: string } | null)?.error ?? 'Unable to update todo.');
       }
 
-      setTodos((current) => sortTodos(updateTodoList(current, payload as Todo)));
+      const { todo: updatedTodo, nextInstance } = payload as { todo: Todo; nextInstance?: Todo };
+      setTodos((current) => {
+        const withUpdate = updateTodoList(current, updatedTodo);
+        return nextInstance ? sortTodos([...withUpdate, nextInstance]) : sortTodos(withUpdate);
+      });
     } catch (mutationError) {
       setTodos(snapshot);
       setError(mutationError instanceof Error ? mutationError.message : 'Unable to update todo.');
@@ -400,8 +456,22 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
-              {loading ? 'Loading todos…' : `${todos.length} total ${todos.length === 1 ? 'item' : 'items'}`}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void requestPermission()}
+                disabled={notificationPermission === 'granted'}
+                className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                  notificationPermission === 'granted'
+                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                    : 'border-orange-300 bg-orange-500 text-white hover:bg-orange-600 dark:border-orange-600'
+                }`}
+              >
+                {notificationPermission === 'granted' ? '🔔 Notifications On' : '🔔 Enable Notifications'}
+              </button>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
+                {loading ? 'Loading todos…' : `${todos.length} total ${todos.length === 1 ? 'item' : 'items'}`}
+              </div>
             </div>
           </div>
 
@@ -453,9 +523,68 @@ export default function HomePage() {
                   type="datetime-local"
                   step={60}
                   value={draft.dueDate}
-                  onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    dueDate: event.target.value,
+                    // Clear recurring/reminder when the due date is removed.
+                    isRecurring: event.target.value ? current.isRecurring : false,
+                    reminderMinutes: event.target.value ? current.reminderMinutes : null,
+                  }))}
                   className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
                 />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={draft.isRecurring}
+                    disabled={!draft.dueDate}
+                    onChange={(e) => setDraft((cur) => ({ ...cur, isRecurring: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Repeat
+                </label>
+                {draft.isRecurring ? (
+                  <select
+                    value={draft.recurrencePattern}
+                    onChange={(e) => setDraft((cur) => ({ ...cur, recurrencePattern: e.target.value as RecurrencePattern }))}
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                ) : (
+                  !draft.dueDate && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Set a due date to enable repeat</p>
+                  )
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="todo-reminder" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Reminder
+                </label>
+                <select
+                  id="todo-reminder"
+                  value={draft.reminderMinutes ?? ''}
+                  disabled={!draft.dueDate}
+                  onChange={(e) => setDraft((cur) => ({ ...cur, reminderMinutes: e.target.value ? (Number(e.target.value) as ReminderMinutes) : null }))}
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
+                >
+                  <option value="">None</option>
+                  <option value={15}>15 minutes before</option>
+                  <option value={30}>30 minutes before</option>
+                  <option value={60}>1 hour before</option>
+                  <option value={120}>2 hours before</option>
+                  <option value={1440}>1 day before</option>
+                  <option value={2880}>2 days before</option>
+                  <option value={10080}>1 week before</option>
+                </select>
               </div>
             </div>
 
@@ -595,6 +724,59 @@ export default function HomePage() {
                     onChange={(event) => setEditDraft((current) => current ? { ...current, dueDate: event.target.value } : current)}
                     className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
                   />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={editDraft.isRecurring}
+                      disabled={!editDraft.dueDate}
+                      onChange={(e) => setEditDraft((cur) => cur ? { ...cur, isRecurring: e.target.checked } : cur)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Repeat
+                  </label>
+                  {editDraft.isRecurring ? (
+                    <select
+                      value={editDraft.recurrencePattern}
+                      onChange={(e) => setEditDraft((cur) => cur ? { ...cur, recurrencePattern: e.target.value as RecurrencePattern } : cur)}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                  ) : (
+                    !editDraft.dueDate && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Set a due date to enable repeat</p>
+                    )
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="edit-todo-reminder" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Reminder
+                  </label>
+                  <select
+                    id="edit-todo-reminder"
+                    value={editDraft.reminderMinutes ?? ''}
+                    disabled={!editDraft.dueDate}
+                    onChange={(e) => setEditDraft((cur) => cur ? { ...cur, reminderMinutes: e.target.value ? (Number(e.target.value) as ReminderMinutes) : null } : cur)}
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-950/60"
+                  >
+                    <option value="">None</option>
+                    <option value={15}>15 minutes before</option>
+                    <option value={30}>30 minutes before</option>
+                    <option value={60}>1 hour before</option>
+                    <option value={120}>2 hours before</option>
+                    <option value={1440}>1 day before</option>
+                    <option value={2880}>2 days before</option>
+                    <option value={10080}>1 week before</option>
+                  </select>
                 </div>
               </div>
 

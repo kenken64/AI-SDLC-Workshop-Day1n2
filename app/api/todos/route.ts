@@ -52,19 +52,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid priority' }, { status: 400 });
   }
 
+  const isRecurring = typeof body.is_recurring === 'boolean' ? body.is_recurring : false;
+  const recurrencePattern =
+    body.recurrence_pattern === 'daily' ||
+    body.recurrence_pattern === 'weekly' ||
+    body.recurrence_pattern === 'monthly' ||
+    body.recurrence_pattern === 'yearly'
+      ? body.recurrence_pattern
+      : null;
+
+  if (isRecurring && !dueDate) {
+    return NextResponse.json(
+      { error: 'Recurring todos require a due date' },
+      { status: 400 },
+    );
+  }
+  if (isRecurring && !recurrencePattern) {
+    return NextResponse.json({ error: 'Invalid recurrence pattern' }, { status: 400 });
+  }
+
   const todo = todoDB.create({
     user_id: session.userId,
     title,
     due_date: dueDate,
     priority,
-    is_recurring: typeof body.is_recurring === 'boolean' ? body.is_recurring : false,
-    recurrence_pattern:
-      body.recurrence_pattern === 'daily' ||
-      body.recurrence_pattern === 'weekly' ||
-      body.recurrence_pattern === 'monthly' ||
-      body.recurrence_pattern === 'yearly'
-        ? body.recurrence_pattern
-        : null,
+    is_recurring: isRecurring,
+    recurrence_pattern: recurrencePattern,
     reminder_minutes:
       typeof body.reminder_minutes === 'number' ? body.reminder_minutes : null,
   });

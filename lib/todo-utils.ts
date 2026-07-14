@@ -1,4 +1,4 @@
-import type { Priority, Todo } from './db';
+import type { Priority, ReminderMinutes, Todo } from './db';
 
 export const PRIORITY_ORDER: Record<Priority, number> = {
   high: 0,
@@ -10,6 +10,16 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   high: 'High',
   medium: 'Medium',
   low: 'Low',
+};
+
+export const REMINDER_LABELS: Record<ReminderMinutes, string> = {
+  15: '15m',
+  30: '30m',
+  60: '1h',
+  120: '2h',
+  1440: '1d',
+  2880: '2d',
+  10080: '1w',
 };
 
 export function validatePriority(value: unknown): Priority {

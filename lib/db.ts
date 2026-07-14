@@ -17,6 +17,16 @@ export type Priority = 'high' | 'medium' | 'low';
 export type RecurrencePattern = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type ReminderMinutes = 15 | 30 | 60 | 120 | 1440 | 2880 | 10080;
 
+export const REMINDER_LABELS: Record<ReminderMinutes, string> = {
+  15: '15m',
+  30: '30m',
+  60: '1h',
+  120: '2h',
+  1440: '1d',
+  2880: '2d',
+  10080: '1w',
+};
+
 export interface User {
   id: number;
   username: string;
@@ -277,21 +287,21 @@ export const todoDB = {
     return row ? toTodo(row) : undefined;
   },
 
-  findForNotifications(now: string): Todo[] {
+  findForNotifications(userId: number, now: string): Todo[] {
     // Rows where the reminder window covers `now` and notification not yet sent for this window.
     return (
       db
         .prepare(
           `SELECT * FROM todos
-           WHERE completed = 0
+           WHERE user_id = ?
+             AND completed = 0
              AND due_date IS NOT NULL
              AND reminder_minutes IS NOT NULL
              AND datetime(due_date, '-' || reminder_minutes || ' minutes') <= ?
-             AND due_date >= ?
              AND (last_notification_sent IS NULL
                   OR last_notification_sent < datetime(due_date, '-' || reminder_minutes || ' minutes'))`,
         )
-        .all(now, now) as Row[]
+        .all(userId, now) as Row[]
     ).map(toTodo);
   },
 

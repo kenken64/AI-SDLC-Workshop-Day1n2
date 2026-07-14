@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { todoDB } from '@/lib/db';
+import { todoDB, tagDB } from '@/lib/db';
 import { normalizeSingaporeDateInput, parseSingaporeDateTime, validatePriority } from '@/lib/todo-utils';
+import { calculateNextDueDate } from '@/lib/recurrence';
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -92,6 +93,23 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'reminder_minutes must be a number' }, { status: 400 });
     }
     updates.reminder_minutes = body.reminder_minutes;
+    // Changing the reminder offset re-arms the notification for the new window.
+    updates.last_notification_sent = null;
+  }
+
+  if (body.last_notification_sent !== undefined) {
+    if (body.last_notification_sent !== null && typeof body.last_notification_sent !== 'string') {
+      return NextResponse.json({ error: 'last_notification_sent must be a string or null' }, { status: 400 });
+    }
+    // Only overwrite if not already being reset by due_date/reminder_minutes change above.
+    if (updates.last_notification_sent === undefined) {
+      updates.last_notification_sent = body.last_notification_sent;
+    }
+  }
+
+  // Reset last_notification_sent when the due date changes so the reminder fires fresh.
+  if (body.due_date !== undefined && updates.last_notification_sent === undefined) {
+    updates.last_notification_sent = null;
   }
 
   const updated = todoDB.update(todoId, session.userId, updates as Partial<Parameters<typeof todoDB.update>[2]>);
@@ -99,7 +117,39 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
 
-  return NextResponse.json(updated);
+  // ── Recurring completion: spawn next instance ────────────────────────────
+  // Only trigger when this request transitions completed false → true on a
+  // recurring todo.  Guard against double-submit by checking existing.completed.
+  const justCompleted =
+    body.completed === true &&
+    existing.completed === false &&
+    existing.is_recurring &&
+    existing.recurrence_pattern &&
+    existing.due_date;
+
+  if (justCompleted && existing.recurrence_pattern && existing.due_date) {
+    const nextDueDate = calculateNextDueDate(existing.due_date, existing.recurrence_pattern);
+
+    const nextInstance = todoDB.create({
+      user_id: session.userId,
+      title: existing.title,
+      priority: existing.priority,
+      is_recurring: true,
+      recurrence_pattern: existing.recurrence_pattern,
+      reminder_minutes: existing.reminder_minutes ?? null,
+      due_date: nextDueDate,
+    });
+
+    // Copy all tag associations from the completed instance.
+    const tags = tagDB.findByTodoId(existing.id);
+    for (const tag of tags) {
+      tagDB.attachToTodo(nextInstance.id, tag.id);
+    }
+
+    return NextResponse.json({ todo: updated, nextInstance });
+  }
+
+  return NextResponse.json({ todo: updated });
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
