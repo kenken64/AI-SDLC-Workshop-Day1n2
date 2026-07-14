@@ -74,11 +74,18 @@ export interface CreateTodoOptions {
   reminder?:  number; // minutes
 }
 
-/**
- * TODO (Person B): implement this helper once the todo UI is in place.
- */
-export async function createTodo(_page: Page, _opts: CreateTodoOptions): Promise<void> {
-  throw new Error('createTodo() not yet implemented — Person B will add this');
+export async function createTodo(page: Page, opts: CreateTodoOptions): Promise<void> {
+  await page.getByLabel('Title').fill(opts.title);
+
+  if (opts.priority) {
+    await page.getByLabel('Priority', { exact: true }).selectOption(opts.priority);
+  }
+
+  if (opts.dueDate) {
+    await page.getByLabel('Due date and time').fill(`${opts.dueDate}T09:00`);
+  }
+
+  await page.getByRole('button', { name: 'Add Todo' }).click();
 }
 
 // ─── Subtask / Tag helpers (Person D fills in the body) ──────────────────────
