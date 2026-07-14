@@ -14,27 +14,27 @@ Self-contained build spec for the entire app in a single pass. It condenses `PRP
 
 ## Model Routing
 
-Default to Sonnet 5 only where correctness risk is high (security, subtle math, cross-feature integration, foundational schema). Route everything else — repetitive CRUD, UI boilerplate, mechanical tests — to a fast/cheap model (Haiku 4.5), per this repo's `.claude/rules/performance.md` convention. Roughly 70% of the line count across the 11 features is repetitive CRUD + UI scaffolding, so this is where the token/cost savings actually come from.
+Use **claude-sonnet-4.6** only where correctness risk is high (security, subtle math, cross-feature integration, foundational schema). Route everything else — repetitive CRUD, UI boilerplate, mechanical tests — to **auto** (lets the system select the cheapest capable model). Roughly 70% of the line count across the 11 features is repetitive CRUD + UI scaffolding, so this is where the token/cost savings actually come from.
 
 | Task | Model | Why |
 |---|---|---|
-| Phase 0: schema + types | **Sonnet 5** | Foundational — mistakes cascade into all 11 features |
-| Auth: WebAuthn flow, session, middleware (11) | **Sonnet 5** | Security-critical; subtle correctness (counter regression, credential encoding) |
-| Todo sort/section comparator + API routes (01) | **Sonnet 5** | Cross-cutting logic every other feature depends on |
-| Recurring due-date calculation (03) | **Sonnet 5** | Month/year-end clamping edge cases, easy to get subtly wrong |
-| Reminder polling + dedup logic (04) | **Sonnet 5** | Timing/race-condition correctness |
-| Export/Import transaction + ID remap + tag conflict resolution (09) | **Sonnet 5** | Multi-table transaction, data-integrity critical |
-| Calendar grid generation (10) | **Sonnet 5** | Leap years, 5-vs-6-week rows, timezone boundary correctness |
-| Priority badges, recurrence/reminder/tag badge components (02) | Haiku 4.5 | Small, fully-specified UI components |
-| Tags CRUD routes + Manage Tags modal (06) | Haiku 4.5 | Repeats the CRUD pattern Sonnet establishes in Phase 0/01 |
-| Subtasks CRUD routes + UI (05) | Haiku 4.5 | Same — mechanical once the pattern exists |
-| Templates CRUD (excl. `/use`) (07) | Haiku 4.5 | Same — mechanical once the pattern exists |
-| Search/filter pure functions + UI (08) | Haiku 4.5 | Fully specified by `FilterState` + fixed AND order below, mechanical translation |
-| CSV export flattening (09) | Haiku 4.5 | String formatting, no correctness ambiguity |
-| Holiday seed script (10) | Haiku 4.5 | Static data insertion |
-| Playwright test cases (all features) | Haiku 4.5 | Mechanical once `tests/helpers.ts` exists |
+| Phase 0: schema + types | **claude-sonnet-4.6** | Foundational — mistakes cascade into all 11 features |
+| Auth: WebAuthn flow, session, middleware (11) | **claude-sonnet-4.6** | Security-critical; subtle correctness (counter regression, credential encoding) |
+| Todo sort/section comparator + API routes (01) | **claude-sonnet-4.6** | Cross-cutting logic every other feature depends on |
+| Recurring due-date calculation (03) | **claude-sonnet-4.6** | Month/year-end clamping edge cases, easy to get subtly wrong |
+| Reminder polling + dedup logic (04) | **claude-sonnet-4.6** | Timing/race-condition correctness |
+| Export/Import transaction + ID remap + tag conflict resolution (09) | **claude-sonnet-4.6** | Multi-table transaction, data-integrity critical |
+| Calendar grid generation (10) | **claude-sonnet-4.6** | Leap years, 5-vs-6-week rows, timezone boundary correctness |
+| Priority badges, recurrence/reminder/tag badge components (02) | auto | Small, fully-specified UI components |
+| Tags CRUD routes + Manage Tags modal (06) | auto | Repeats the CRUD pattern Sonnet establishes in Phase 0/01 |
+| Subtasks CRUD routes + UI (05) | auto | Same — mechanical once the pattern exists |
+| Templates CRUD (excl. `/use`) (07) | auto | Same — mechanical once the pattern exists |
+| Search/filter pure functions + UI (08) | auto | Fully specified by `FilterState` + fixed AND order below, mechanical translation |
+| CSV export flattening (09) | auto | String formatting, no correctness ambiguity |
+| Holiday seed script (10) | auto | Static data insertion |
+| Playwright test cases (all features) | auto | Mechanical once `tests/helpers.ts` exists |
 
-**How to apply in Claude Code:** for Haiku-routed rows, dispatch via the `Agent` tool with `model: "haiku"`; batch a whole feature's CRUD route + UI component + tests into *one* subagent call rather than one call per file — dispatch overhead eats the savings otherwise. For Sonnet-routed rows, do the work directly yourself (no subagent) so it benefits from the accumulated context of the schema/type decisions made in Phase 0.
+**How to apply in Claude Code:** for `auto`-routed rows, dispatch via the `Agent` tool with `model: "auto"`; batch a whole feature's CRUD route + UI component + tests into *one* subagent call rather than one call per file — dispatch overhead eats the savings otherwise. For `claude-sonnet-4.6`-routed rows, do the work directly yourself (no subagent) so it benefits from the accumulated context of the schema/type decisions made in Phase 0.
 
 ## Stack & Layout
 
@@ -71,6 +71,80 @@ Every API route: check session first, `NextResponse.json({ error: 'Not authentic
 11. **Calendar View** (10) — needs 01/02, protected by 11's middleware
 
 (This is auth-first, unlike `PRPs/README.md`'s value-priority ordering which defers auth to last — technically you need `session.userId` before any other route is meaningful, so build it first here.)
+
+## 5-Person Team Split
+
+Dependencies flow in waves. No one in Wave N+1 can start until all Wave N deliverables are merged into `sprint`.
+
+### Wave 1 — Unblock everyone else first
+
+| Person | Features | PRPs | Model | Branch |
+|--------|----------|------|-------|--------|
+| **A — Integration Lead** | Phase 0 schema + types, Auth / WebAuthn | `11` | claude-sonnet-4.6 | `feat/member-a-auth` |
+
+**Person A must deliver first.** Every other person depends on `session.userId` and the full DB schema. Person A also owns `lib/db.ts`, `lib/auth.ts`, `lib/timezone.ts`, and `middleware.ts`. Do not start Wave 2 until Person A's PR is merged.
+
+---
+
+### Wave 2 — Core todo model (start after Wave 1 merged)
+
+| Person | Features | PRPs | Model | Branch |
+|--------|----------|------|-------|--------|
+| **B — Core Todo** | Todo CRUD, Priority | `01`, `02` | claude-sonnet-4.6 (routes) / auto (UI badges) | `feat/member-b-crud-priority` |
+
+**Prerequisites:** Person A's `feat/member-a-auth` merged into `sprint`.  
+Person B owns `app/api/todos/`, `app/page.tsx` base structure, and the `todos` table schema (already created by A — B only adds API routes + UI).
+
+---
+
+### Wave 3 — Parallel build (start after Wave 2 merged)
+
+Both C and D work in parallel once Person B's branch is merged.
+
+| Person | Features | PRPs | Model | Branch |
+|--------|----------|------|-------|--------|
+| **C — Recurring + Reminders** | Recurring Todos, Reminders & Notifications | `03`, `04` | claude-sonnet-4.6 | `feat/member-c-recurring-reminders` |
+| **D — Subtasks + Tags + Search** | Subtasks & Progress, Tag System, Search & Filtering | `05`, `06`, `08` | auto (05, 06, 08 all mechanical) | `feat/member-d-subtasks-tags-search` |
+
+**Person C prerequisites:** `feat/member-b-crud-priority` merged. Owns `recurrence_pattern`, `reminder_minutes` columns, `app/api/notifications/check/`, `lib/hooks/useNotifications.ts`.  
+**Person D prerequisites:** `feat/member-b-crud-priority` merged. Owns `subtasks`, `tags`, `todo_tags` tables + their API routes + filter UI in `app/page.tsx`. Build in order: subtasks → tags → search (search needs tags to exist).
+
+---
+
+### Wave 4 — Integration features (start after Wave 3 fully merged)
+
+| Person | Features | PRPs | Model | Branch |
+|--------|----------|------|-------|--------|
+| **E — Templates + Export/Import + Calendar** | Template System, Export & Import, Calendar View | `07`, `09`, `10` | claude-sonnet-4.6 (09, 10) / auto (07 CRUD) | `feat/member-e-templates-export-calendar` |
+
+**Prerequisites:** ALL of Waves 1–3 merged into `sprint` (needs todos, subtasks, tags, recurrence, reminders).  
+Person E also handles final integration: resolves any cross-feature conflicts, runs full Playwright suite, and opens the final `sprint → main` PR for submission.
+
+---
+
+### Merge order summary
+
+```
+Wave 1:  A (auth + schema)
+Wave 2:  B (crud + priority)
+Wave 3:  C (recurring + reminders)  ──┐  parallel
+         D (subtasks + tags + search) ─┘
+Wave 4:  E (templates + export + calendar + final integration)
+```
+
+### File ownership — who touches what
+
+| File / Area | Owner |
+|-------------|-------|
+| `lib/db.ts`, `lib/auth.ts`, `lib/timezone.ts`, `middleware.ts` | A |
+| `app/api/todos/` base routes, `app/page.tsx` skeleton | B |
+| `app/api/todos/[id]/` recurrence logic, `app/api/notifications/` | C |
+| `app/api/subtasks/`, `app/api/tags/`, filter state in `app/page.tsx` | D |
+| `app/api/templates/`, `app/api/todos/export`, `app/calendar/` | E |
+| `tests/helpers.ts` base | A or B |
+| Per-feature Playwright tests | each owner writes their own |
+
+**Conflict rule:** if two people need to edit `app/page.tsx` at the same time (B skeleton, D filter UI), D branches from B's latest and rebases onto sprint after B merges.
 
 ## Database Schema (create all at once — Phase 0)
 
